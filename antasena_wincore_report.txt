@@ -1,0 +1,2320 @@
+antasena_wincore_report
+
+-- 1. Cleansing PerRef
+
+SELECT 
+  `No Ref` as no_ref, 
+  IFNULL(`Total Pembayaran Bunga`, 0) AS pembayaran_bunga, 
+  IFNULL(`Total Pembayaran Pokok`, 0) AS pembayaran_pokok,
+  `Tgl Pembayaran` as tgl_pembayaran
+FROM (
+  SELECT 
+    `No Ref`, 
+    SUM(safe_cast(`Pembayaran Bunga` as FLOAT64)) AS `Total Pembayaran Bunga`, 
+    SUM(safe_cast(`Pembayaran Pokok` as FLOAT64)) AS `Total Pembayaran Pokok`,
+    `Tgl Pembayaran`
+  FROM 
+    `data-collection-01.antasena_wincore_report.vw_antasena_master_pembayaran_cleansing` 
+  GROUP BY 
+    `No Ref`, `Tgl Pembayaran`
+) AS a
+
+----------------------
+
+SELECT
+  PART as part,
+  PROD as prod,
+  DLRF as dlrf,
+  `TGL-WO` AS tgl_wo,
+  POKOK as pokok,
+  BUNGA as bunga,
+  `TOTAL HB` AS total_hb
+FROM `data-collection-01.antasena_wincore_report.vw_antasena_hapus_buku_kredit_restruktur`
+
+-----------------------
+
+-- 2. Hasil Cleansing
+
+SELECT 
+  a.no_ref as no_ref, 
+  -- Total_Pem as total_pem, 
+  -- b.capital_left as capital_left, 
+  -- b.interest_left as interest_left, 
+  IF(Total_Pem < b.capital_left, Total_Pem, b.capital_left) AS total_pem_capital, 
+  IF(Total_Pem < b.capital_left, 0,
+    IF((Total_Pem - b.capital_left) < b.interest_left,
+      Total_Pem - b.capital_left,
+      b.interest_left
+    )
+  ) AS total_pem_interest,
+  tgl_pembayaran
+FROM (
+  SELECT 
+    no_ref, 
+    (IFNULL(pembayaran_pokok, 0) + IFNULL(pembayaran_bunga, 0)) AS Total_Pem,
+    tgl_pembayaran 
+  FROM 
+    `data-collection-01.antasena_wincore_report.vw_adr_1`
+) AS a 
+INNER JOIN 
+  `data-collection-01.antasena_wincore_report.vw_adr_4` b ON a.no_ref = b.no_referensi
+  
+------------------------
+
+-- 3. Pembayaran perRef
+
+SELECT 
+  `No Ref` as no_ref, 
+  IFNULL(`Total Pembayaran Bunga`, 0) AS total_pemb_bunga, 
+  IFNULL(`Total Pembayaran Pokok`, 0) AS total_pemb_pokok
+FROM (
+  SELECT 
+    `No Ref`, 
+    SUM(safe_cast(`Pembayaran Bunga` as FLOAT64)) AS `Total Pembayaran Bunga`, 
+    SUM(safe_cast(`Pembayaran Pokok` as FLOAT64)) AS `Total Pembayaran Pokok`
+  FROM 
+    `data-collection-01.antasena_wincore_report.vw_antasena_master_pembayaran` 
+  GROUP BY 
+    `No Ref`
+) AS a
+
+
+------------------------
+
+-- 4. Total Sisa OS HB
+
+SELECT
+  `CIF` as cif, 
+  Nama as nama, 
+  -- `Sheet` as sheet, 
+  `No referensi` as no_referensi, `OS HB` AS capital_hb,
+  `Interest HB` as interest_hb, (`OS HB` + `Interest HB`) AS total_hb,
+  `Pembayaran Pokok` AS capital_repayment,
+  `Pembayaran Bunga` AS interest_repayment, (`Pembayaran Pokok` + `Pembayaran Bunga`) AS total_repayment,
+  (`OS HB` - `Pembayaran Pokok`) AS capital_left,
+  (`Interest HB` - `Pembayaran Bunga`) AS interest_left,
+  (`OS HB` - `Pembayaran Pokok` + `Interest HB` - `Pembayaran Bunga`) AS total_left
+FROM (
+  SELECT 
+  a.`CIF`, 
+  a.Nama, 
+  -- a.`Sheet`, 
+  a.`No referensi`, 
+  a.`Tgl Hapus Buku`,
+  IFNULL(safe_cast(a.Plafond as FLOAT64), 0) AS PLAF,
+  IFNULL(safe_cast(a.Outstanding as FLOAT64), 0) AS `OS HB`, IFNULL(safe_cast(a.Interest as FLOAT64), 0) AS `Interest HB`,
+  IFNULL(b.total_pemb_pokok, 0) AS `Pembayaran Pokok`, IFNULL(b.total_pemb_bunga, 0) AS `Pembayaran Bunga`
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_master_hapus_buku_dbsource` AS a
+  LEFT JOIN `data-collection-01.antasena_wincore_report.vw_adr_3` AS b ON a.`No referensi` = b.no_ref
+) AS b
+
+
+----------------------
+
+-- 5. Total Sisa OS HB KTAAR
+
+SELECT 
+  `CIF` as cif, Nama as nama, `Sheet` as sheet, `No referensi` as no_referensi, `OS HB` AS capital_hb, 
+  `Interest HB` as interest_hb, (`OS HB` + `Interest HB`) AS total_hb, 
+  `Pembayaran Pokok` AS capital_repayment, 
+  `Pembayaran Bunga` AS interest_repayment, 
+  (`Pembayaran Pokok` + `Pembayaran Bunga`) AS total_repayment, 
+  (`OS HB` - `Pembayaran Pokok`) AS capital_left, 
+  (`Interest HB` - `Pembayaran Bunga`) AS interest_left, 
+  (`OS HB` - `Pembayaran Pokok` + `Interest HB` - `Pembayaran Bunga`) AS total_left
+FROM (
+  SELECT a.`CIF`, a.Nama, a.`Sheet`, a.`No referensi`, a.`Tgl Hapus Buku`,
+    IFNULL(safe_cast(a.Plafond as FLOAT64), 0) AS PLAF,
+    IFNULL(safe_cast(a.Outstanding as FLOAT64), 0) AS `OS HB`, IFNULL(safe_cast(a.Interest as FLOAT64), 0) AS `Interest HB`,
+    IFNULL(b.total_pemb_pokok, 0) AS `Pembayaran Pokok`, IFNULL(b.total_pemb_bunga, 0) AS `Pembayaran Bunga`
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_master_hapus_buku` AS a
+  LEFT JOIN `data-collection-01.antasena_wincore_report.vw_adr_3` AS b ON a.`No referensi` = b.no_ref
+) AS b
+WHERE `Sheet` LIKE 'KTAAR'
+
+-------------------------
+
+-- 6. Total Sisa OS HB NonWinc
+
+SELECT 
+  `CIF` as cif, Nama as nama, `Sheet` as sheet, `No referensi` as no_referensi, `OS HB` AS capital_hb, 
+  `Interest HB` as interest_hb, (`OS HB` + `Interest HB`) AS total_hb, 
+  `Pembayaran Pokok` AS capital_repayment, 
+  `Pembayaran Bunga` AS interest_repayment, 
+  (`Pembayaran Pokok` + `Pembayaran Bunga`) AS total_repayment, 
+  (`OS HB` - `Pembayaran Pokok`) AS capital_left, 
+  (`Interest HB` - `Pembayaran Bunga`) AS interest_left, 
+  (`OS HB` - `Pembayaran Pokok` + `Interest HB` - `Pembayaran Bunga`) AS total_left
+FROM (
+  SELECT a.`CIF`, a.Nama, a.`Sheet`, a.`No referensi`, a.`Tgl Hapus Buku`,
+    IFNULL(safe_cast(a.Plafond as FLOAT64), 0) AS PLAF,
+    IFNULL(safe_cast(a.Outstanding as FLOAT64), 0) AS `OS HB`, IFNULL(safe_cast(a.Interest as FLOAT64), 0) AS `Interest HB`,
+    IFNULL(b.total_pemb_pokok, 0) AS `Pembayaran Pokok`, IFNULL(b.total_pemb_bunga, 0) AS `Pembayaran Bunga`
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_master_hapus_buku` AS a
+  LEFT JOIN `data-collection-01.antasena_wincore_report.vw_adr_3` AS b ON a.`No referensi` = b.no_ref
+) AS b
+WHERE `Sheet` LIKE 'NonWinc'
+
+------------------------
+
+-- 7. Total Sisa OS HB Pokok+GenWinc
+
+SELECT 
+  `CIF` as cif, Nama as nama, `Sheet` as sheet, `No referensi` as no_referensi, `OS HB` AS capital_hb, 
+  `Interest HB` as interest_hb, (`OS HB` + `Interest HB`) AS total_hb, 
+  `Pembayaran Pokok` AS capital_repayment, 
+  `Pembayaran Bunga` AS interest_repayment, 
+  (`Pembayaran Pokok` + `Pembayaran Bunga`) AS total_repayment, 
+  (`OS HB` - `Pembayaran Pokok`) AS capital_left, 
+  (`Interest HB` - `Pembayaran Bunga`) AS interest_left, 
+  (`OS HB` - `Pembayaran Pokok` + `Interest HB` - `Pembayaran Bunga`) AS total_left
+FROM (
+  SELECT a.`CIF`, a.Nama, a.`Sheet`, a.`No referensi`, a.`Tgl Hapus Buku`,
+    IFNULL(safe_cast(a.Plafond as FLOAT64), 0) AS PLAF,
+    IFNULL(safe_cast(a.Outstanding as FLOAT64), 0) AS `OS HB`, IFNULL(safe_cast(a.Interest as FLOAT64), 0) AS `Interest HB`,
+    IFNULL(b.total_pemb_pokok, 0) AS `Pembayaran Pokok`, IFNULL(b.total_pemb_bunga, 0) AS `Pembayaran Bunga`
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_master_hapus_buku` AS a
+  LEFT JOIN `data-collection-01.antasena_wincore_report.vw_adr_3` AS b ON a.`No referensi` = b.no_ref
+) AS b
+WHERE `Sheet` LIKE 'Pokok+GenWic'
+
+------------------------
+
+-- 8. Total Sisa OS HB PokokWinc
+
+SELECT 
+  `CIF` as cif, Nama as nama, `Sheet` as sheet, `No referensi` as no_referensi, `OS HB` AS capital_hb, 
+  `Interest HB` as interest_hb, (`OS HB` + `Interest HB`) AS total_hb, 
+  `Pembayaran Pokok` AS capital_repayment, 
+  `Pembayaran Bunga` AS interest_repayment, 
+  (`Pembayaran Pokok` + `Pembayaran Bunga`) AS total_repayment, 
+  (`OS HB` - `Pembayaran Pokok`) AS capital_left, 
+  (`Interest HB` - `Pembayaran Bunga`) AS interest_left, 
+  (`OS HB` - `Pembayaran Pokok` + `Interest HB` - `Pembayaran Bunga`) AS total_left
+FROM (
+  SELECT a.`CIF`, a.Nama, a.`Sheet`, a.`No referensi`, a.`Tgl Hapus Buku`,
+    IFNULL(safe_cast(a.Plafond as FLOAT64), 0) AS PLAF,
+    IFNULL(safe_cast(a.Outstanding as FLOAT64), 0) AS `OS HB`, IFNULL(safe_cast(a.Interest as FLOAT64), 0) AS `Interest HB`,
+    IFNULL(b.total_pemb_pokok, 0) AS `Pembayaran Pokok`, IFNULL(b.total_pemb_bunga, 0) AS `Pembayaran Bunga`
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_master_hapus_buku` AS a
+  LEFT JOIN `data-collection-01.antasena_wincore_report.vw_adr_3` AS b ON a.`No referensi` = b.no_ref
+) AS b
+WHERE `Sheet` LIKE 'PokokWinc'
+
+-----------------------
+
+-- 9. Antasena Master Hapus Buku
+
+SELECT 
+-- `ID` AS id,
+-- `No` AS `no`,
+`CIF` AS cif,
+`No referensi` AS no_referensi,
+`Nama` AS nama,
+`Plafond` AS plafond,
+`Outstanding` AS outstanding,
+`Interest` AS interest,
+`Product` AS product,
+`kd branch` AS kd_branch,
+`Tgl Hapus Buku` AS tgl_hapus_buku
+FROM `data-collection-01.antasena_wincore_report.vw_antasena_master_hapus_buku_dbsource`
+
+-------------------------
+
+SELECT 
+  SAFE_CAST(REGEXP_REPLACE(`No`, r'([\'\"])', '') AS STRING) AS `No`,
+  SAFE_CAST(REGEXP_REPLACE(`CIF`, r'([\'\"])', '') AS STRING) AS `CIF`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR IDENTITAS`, r'([\'\"])', '') AS STRING) AS `NOMOR IDENTITAS`,
+  SAFE_CAST(REGEXP_REPLACE(`NAMA DEBITUR`, r'([\'\"])', '') AS STRING) AS `NAMA DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`PRODUK`, r'([\'\"])', '') AS STRING) AS `PRODUK`,
+  SAFE_CAST(REGEXP_REPLACE(`KODE CABANG`, r'([\'\"])', '') AS STRING) AS `KODE CABANG`,
+  SAFE_CAST(REGEXP_REPLACE(`PELAPOR`, r'([\'\"])', '') AS STRING) AS `PELAPOR`,
+  SAFE_CAST(REGEXP_REPLACE(`LOAN STATUS`, r'([\'\"])', '') AS STRING) AS `LOAN STATUS`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING ANTASENA`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING ANTASENA`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING SLIK`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING SLIK`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS KREDIT`, r'([\'\"])', '') AS STRING) AS `JENIS KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`KETERANGAN JENIS KREDIT`, r'([\'\"])', '') AS STRING) AS `KETERANGAN JENIS KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR AKAD AWAL`, r'([\'\"])', '') AS STRING) AS `NOMOR AKAD AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AKAD AWAL`, r'([\'\"])', '') AS STRING) AS `TANGGAL AKAD AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR AKAD AKHIR`, r'([\'\"])', '') AS STRING) AS `NOMOR AKAD AKHIR`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AKAD AKHIR`, r'([\'\"])', '') AS STRING) AS `TANGGAL AKAD AKHIR`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AWAL`, r'([\'\"])', '') AS STRING) AS `TANGGAL AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`MULAI`, r'([\'\"])', '') AS STRING) AS `MULAI`,
+  SAFE_CAST(REGEXP_REPLACE(`JATUH TEMPO`, r'([\'\"])', '') AS STRING) AS `JATUH TEMPO`,
+  SAFE_CAST(REGEXP_REPLACE(`KATAGORI DEBITUR`, r'([\'\"])', '') AS STRING) AS `KATAGORI DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`KET KATAGORI DEBITUR`, r'([\'\"])', '') AS STRING) AS `KET KATAGORI DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`KATEGORI PORTOFOLIO`, r'([\'\"])', '') AS STRING) AS `KATEGORI PORTOFOLIO`,
+  SAFE_CAST(REGEXP_REPLACE(`KET KATEGORI PORTOFOLIO`, r'([\'\"])', '') AS STRING) AS `KET KATEGORI PORTOFOLIO`,
+  SAFE_CAST(REGEXP_REPLACE(`SIFAT KREDIT`, r'([\'\"])', '') AS STRING) AS `SIFAT KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS PENGGUNAAN`, r'([\'\"])', '') AS STRING) AS `JENIS PENGGUNAAN`,
+  SAFE_CAST(REGEXP_REPLACE(`ORIENTASI PENGGUNAAN`, r'([\'\"])', '') AS STRING) AS `ORIENTASI PENGGUNAAN`,
+  SAFE_CAST(REGEXP_REPLACE(`CCY`, r'([\'\"])', '') AS STRING) AS `CCY`,
+  SAFE_CAST(REGEXP_REPLACE(`KREDIT PROGRAM PEMERINTAH`, r'([\'\"])', '') AS STRING) AS `KREDIT PROGRAM PEMERINTAH`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS ANTASENA`, r'([\'\"])', '') AS STRING) AS `KUALITAS ANTASENA`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS SLIK`, r'([\'\"])', '') AS STRING) AS `KUALITAS SLIK`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS WINCORE`, r'([\'\"])', '') AS STRING) AS `KUALITAS WINCORE`,
+  SAFE_CAST(REGEXP_REPLACE(`TINGKAT SUKU BUNGA`, r'([\'\"])', '') AS STRING) AS `TINGKAT SUKU BUNGA`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS SUKU BUNGA`, r'([\'\"])', '') AS STRING) AS `JENIS SUKU BUNGA`,
+  SAFE_CAST(REGEXP_REPLACE(`SEKTOR EKONOMI`, r'([\'\"])', '') AS STRING) AS `SEKTOR EKONOMI`,
+  SAFE_CAST(REGEXP_REPLACE(`KETERANGAN SEKTOR EKONOMI`, r'([\'\"])', '') AS STRING) AS `KETERANGAN SEKTOR EKONOMI`,
+  SAFE_CAST(REGEXP_REPLACE(`SE REPORT`, r'([\'\"])', '') AS STRING) AS `SE REPORT`,
+  SAFE_CAST(REGEXP_REPLACE(`LOKASI PROYEK`, r'([\'\"])', '') AS STRING) AS `LOKASI PROYEK`,
+  SAFE_CAST(REGEXP_REPLACE(`KOTA OR KAB`, r'([\'\"])', '') AS STRING) AS `KOTA OR KAB`,
+  SAFE_CAST(REGEXP_REPLACE(`PROVINSI`, r'([\'\"])', '') AS STRING) AS `PROVINSI`,
+  SAFE_CAST(REGEXP_REPLACE(`WILAYAH`, r'([\'\"])', '') AS STRING) AS `WILAYAH`,
+  SAFE_CAST(REGEXP_REPLACE(`PLAFOND INDUK`, r'([-,\'\"])', '') AS STRING) AS `PLAFOND INDUK`,
+  SAFE_CAST(REGEXP_REPLACE(`PLAFOND`, r'([-,\'\"])', '') AS STRING) AS `PLAFOND`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMINAL KREDIT`, r'([-,\'\"])', '') AS STRING) AS `NOMINAL KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`KELONGGARAN TARIK UNCOMMITTED`, r'([-,\'\"])', '') AS STRING) AS `KELONGGARAN TARIK UNCOMMITTED`,
+  SAFE_CAST(REGEXP_REPLACE(`REALISASI PENCAIRAN BULAN BERJALAN`, r'([-,\'\"])', '') AS STRING) AS `REALISASI PENCAIRAN BULAN BERJALAN`,
+  SAFE_CAST(REGEXP_REPLACE(`JUMLAH`, r'([-,\'\"])', '') AS STRING) AS `JUMLAH`,
+  SAFE_CAST(REGEXP_REPLACE(`PENDAPATAN BUNGA YANK AKAN DITERIMA`, r'([-,\'\"])', '') AS STRING) AS `PENDAPATAN BUNGA YANK AKAN DITERIMA`,
+  SAFE_CAST(REGEXP_REPLACE(`NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT`, r'([-,\'\"])', '') AS STRING) AS `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`BTB OR CASH COL`, r'([-,\'\"])', '') AS STRING) AS `BTB OR CASH COL`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`,
+  partition_date
+FROM `data-collection-01.antasena_wincore_report.antasena_badan_usaha_non_ljk_non_umkm` 
+WHERE partition_date != "1970-01-01"
+
+
+----------------------------------
+
+SELECT 
+  SAFE_CAST(REGEXP_REPLACE(`ID`, r'([\'\"])', '') AS STRING) AS `ID`,
+  SAFE_CAST(REGEXP_REPLACE(`CIF`, r'([\'\"])', '') AS STRING) AS `CIF`,
+  SAFE_CAST(REGEXP_REPLACE(`Nomor Referensi`, r'([\'\"])', '') AS STRING) AS `Nomor Referensi`,
+  SAFE_CAST(REGEXP_REPLACE(`Nama`, r'([\'\"])', '') AS STRING) AS `Nama`,
+  SAFE_CAST(REGEXP_REPLACE(`Sektor Ekonomi`, r'([\'\"])', '') AS STRING) AS `Sektor Ekonomi`,
+  SAFE_CAST(REGEXP_REPLACE(`SE Report`, r'([\'\"])', '') AS STRING) AS `SE Report`,
+  SAFE_CAST(REGEXP_REPLACE(`Lokasi Proyek`, r'([\'\"])', '') AS STRING) AS `Lokasi Proyek`,
+  SAFE_CAST(REGEXP_REPLACE(`Wilayah`, r'([\'\"])', '') AS STRING) AS `Wilayah`,
+  SAFE_CAST(REGEXP_REPLACE(`TGL HB laporan`, r'([\'\"])', '') AS STRING) AS `TGL HB laporan`,
+  SAFE_CAST(REGEXP_REPLACE(`TOTAL OS HB`, r'([-,\'\"])', '') AS STRING) AS `TOTAL OS HB`,
+  partition_date
+FROM `data-collection-01.antasena_wincore_report.antasena_hapus_buku` 
+WHERE partition_date != "1970-01-01"
+
+---------------------------------
+
+SELECT
+  SAFE_CAST(REGEXP_REPLACE(PART, r'([\'\"])', '') AS STRING) AS PART,
+  SAFE_CAST(REGEXP_REPLACE(PROD, r'([\'\"])', '') AS STRING) AS PROD,
+  SAFE_CAST(REGEXP_REPLACE(DLRF, r'([\'\"])', '') AS STRING) AS DLRF,
+  SAFE_CAST(REGEXP_REPLACE(`TGL-WO`, r'([\'\"])', '') AS STRING) AS `TGL-WO`,
+  SAFE_CAST(REGEXP_REPLACE(POKOK, r'([-,\'\"])', '') AS STRING) AS POKOK,
+  SAFE_CAST(REGEXP_REPLACE(BUNGA, r'([-,\'\"])', '') AS STRING) AS BUNGA,
+  SAFE_CAST(REGEXP_REPLACE(`TOTAL HB`, r'([-,\'\"])', '') AS STRING) AS `TOTAL HB`
+FROM `data-collection-01.antasena_wincore_report.antasena_hapus_buku_kredit_restruktur`
+
+--------------------------------
+
+SELECT 
+  SAFE_CAST(REGEXP_REPLACE(`No`, r'([\'\"])', '') AS STRING) AS `No`,
+  SAFE_CAST(REGEXP_REPLACE(`CIF`, r'([\'\"])', '') AS STRING) AS `CIF`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR IDENTITAS`, r'([\'\"])', '') AS STRING) AS `NOMOR IDENTITAS`,
+  SAFE_CAST(REGEXP_REPLACE(`NAMA DEBITUR`, r'([\'\"])', '') AS STRING) AS `NAMA DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`PRODUK`, r'([\'\"])', '') AS STRING) AS `PRODUK`,
+  SAFE_CAST(REGEXP_REPLACE(`KODE CABANG`, r'([\'\"])', '') AS STRING) AS `KODE CABANG`,
+  SAFE_CAST(REGEXP_REPLACE(`PELAPOR`, r'([\'\"])', '') AS STRING) AS `PELAPOR`,
+  SAFE_CAST(REGEXP_REPLACE(`LOAN STATUS`, r'([\'\"])', '') AS STRING) AS `LOAN STATUS`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING ANTASENA`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING ANTASENA`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING SLIK`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING SLIK`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS KREDIT`, r'([\'\"])', '') AS STRING) AS `JENIS KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`KETERANGAN JENIS KREDIT`, r'([\'\"])', '') AS STRING) AS `KETERANGAN JENIS KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR AKAD AWAL`, r'([\'\"])', '') AS STRING) AS `NOMOR AKAD AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AKAD AWAL`, r'([\'\"])', '') AS STRING) AS `TANGGAL AKAD AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR AKAD AKHIR`, r'([\'\"])', '') AS STRING) AS `NOMOR AKAD AKHIR`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AKAD AKHIR`, r'([\'\"])', '') AS STRING) AS `TANGGAL AKAD AKHIR`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AWAL`, r'([\'\"])', '') AS STRING) AS `TANGGAL AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`MULAI`, r'([\'\"])', '') AS STRING) AS `MULAI`,
+  SAFE_CAST(REGEXP_REPLACE(`JATUH TEMPO`, r'([\'\"])', '') AS STRING) AS `JATUH TEMPO`,
+  SAFE_CAST(REGEXP_REPLACE(`KATAGORI DEBITUR`, r'([\'\"])', '') AS STRING) AS `KATAGORI DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`KET KATAGORI DEBITUR`, r'([\'\"])', '') AS STRING) AS `KET KATAGORI DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`KATEGORI PORTOFOLIO`, r'([\'\"])', '') AS STRING) AS `KATEGORI PORTOFOLIO`,
+  SAFE_CAST(REGEXP_REPLACE(`KET KATEGORI PORTOFOLIO`, r'([\'\"])', '') AS STRING) AS `KET KATEGORI PORTOFOLIO`,
+  SAFE_CAST(REGEXP_REPLACE(`SIFAT KREDIT`, r'([\'\"])', '') AS STRING) AS `SIFAT KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS PENGGUNAAN`, r'([\'\"])', '') AS STRING) AS `JENIS PENGGUNAAN`,
+  SAFE_CAST(REGEXP_REPLACE(`ORIENTASI PENGGUNAAN`, r'([\'\"])', '') AS STRING) AS `ORIENTASI PENGGUNAAN`,
+  SAFE_CAST(REGEXP_REPLACE(`CCY`, r'([\'\"])', '') AS STRING) AS `CCY`,
+  SAFE_CAST(REGEXP_REPLACE(`KREDIT PROGRAM PEMERINTAH`, r'([\'\"])', '') AS STRING) AS `KREDIT PROGRAM PEMERINTAH`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS ANTASENA`, r'([\'\"])', '') AS STRING) AS `KUALITAS ANTASENA`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS SLIK`, r'([\'\"])', '') AS STRING) AS `KUALITAS SLIK`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS WINCORE`, r'([\'\"])', '') AS STRING) AS `KUALITAS WINCORE`,
+  SAFE_CAST(REGEXP_REPLACE(`TINGKAT SUKU BUNGA`, r'([\'\"])', '') AS STRING) AS `TINGKAT SUKU BUNGA`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS SUKU BUNGA`, r'([\'\"])', '') AS STRING) AS `JENIS SUKU BUNGA`,
+  SAFE_CAST(REGEXP_REPLACE(`SEKTOR EKONOMI`, r'([\'\"])', '') AS STRING) AS `SEKTOR EKONOMI`,
+  SAFE_CAST(REGEXP_REPLACE(`KETERANGAN SEKTOR EKONOMI`, r'([\'\"])', '') AS STRING) AS `KETERANGAN SEKTOR EKONOMI`,
+  SAFE_CAST(REGEXP_REPLACE(`SE REPORT`, r'([\'\"])', '') AS STRING) AS `SE REPORT`,
+  SAFE_CAST(REGEXP_REPLACE(`LOKASI PROYEK`, r'([\'\"])', '') AS STRING) AS `LOKASI PROYEK`,
+  SAFE_CAST(REGEXP_REPLACE(`KOTA OR KAB`, r'([\'\"])', '') AS STRING) AS `KOTA OR KAB`,
+  SAFE_CAST(REGEXP_REPLACE(`PROVINSI`, r'([\'\"])', '') AS STRING) AS `PROVINSI`,
+  SAFE_CAST(REGEXP_REPLACE(`WILAYAH`, r'([\'\"])', '') AS STRING) AS `WILAYAH`,
+  SAFE_CAST(REGEXP_REPLACE(`PLAFOND INDUK`, r'([-,\'\"])', '') AS STRING) AS `PLAFOND INDUK`,
+  SAFE_CAST(REGEXP_REPLACE(`PLAFOND`, r'([-,\'\"])', '') AS STRING) AS `PLAFOND`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMINAL KREDIT`, r'([-,\'\"])', '') AS STRING) AS `NOMINAL KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`KELONGGARAN TARIK UNCOMMITTED`, r'([-,\'\"])', '') AS STRING) AS `KELONGGARAN TARIK UNCOMMITTED`,
+  SAFE_CAST(REGEXP_REPLACE(`REALISASI PENCAIRAN BULAN BERJALAN`, r'([-,\'\"])', '') AS STRING) AS `REALISASI PENCAIRAN BULAN BERJALAN`,
+  SAFE_CAST(REGEXP_REPLACE(`JUMLAH`, r'([-,\'\"])', '') AS STRING) AS `JUMLAH`,
+  SAFE_CAST(REGEXP_REPLACE(`PENDAPATAN BUNGA YANK AKAN DITERIMA`, r'([-,\'\"])', '') AS STRING) AS `PENDAPATAN BUNGA YANK AKAN DITERIMA`,
+  SAFE_CAST(REGEXP_REPLACE(`NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT`, r'([-,\'\"])', '') AS STRING) AS `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`BTB OR CASH COL`, r'([-,\'\"])', '') AS STRING) AS `BTB OR CASH COL`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`,
+  partition_date
+FROM `data-collection-01.antasena_wincore_report.antasena_kerjasama_badan_usaha_1` 
+WHERE partition_date != "1970-01-01"
+
+----------------------------
+
+SELECT 
+  SAFE_CAST(REGEXP_REPLACE(`No`, r'([\'\"])', '') AS STRING) AS `No`,
+  SAFE_CAST(REGEXP_REPLACE(`CIF`, r'([\'\"])', '') AS STRING) AS `CIF`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR IDENTITAS`, r'([\'\"])', '') AS STRING) AS `NOMOR IDENTITAS`,
+  SAFE_CAST(REGEXP_REPLACE(`NAMA DEBITUR`, r'([\'\"])', '') AS STRING) AS `NAMA DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`PRODUK`, r'([\'\"])', '') AS STRING) AS `PRODUK`,
+  SAFE_CAST(REGEXP_REPLACE(`KODE CABANG`, r'([\'\"])', '') AS STRING) AS `KODE CABANG`,
+  SAFE_CAST(REGEXP_REPLACE(`PELAPOR`, r'([\'\"])', '') AS STRING) AS `PELAPOR`,
+  SAFE_CAST(REGEXP_REPLACE(`LOAN STATUS`, r'([\'\"])', '') AS STRING) AS `LOAN STATUS`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING ANTASENA`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING ANTASENA`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING SLIK`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING SLIK`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS KREDIT`, r'([\'\"])', '') AS STRING) AS `JENIS KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`KETERANGAN JENIS KREDIT`, r'([\'\"])', '') AS STRING) AS `KETERANGAN JENIS KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR AKAD AWAL`, r'([\'\"])', '') AS STRING) AS `NOMOR AKAD AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AKAD AWAL`, r'([\'\"])', '') AS STRING) AS `TANGGAL AKAD AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR AKAD AKHIR`, r'([\'\"])', '') AS STRING) AS `NOMOR AKAD AKHIR`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AKAD AKHIR`, r'([\'\"])', '') AS STRING) AS `TANGGAL AKAD AKHIR`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AWAL`, r'([\'\"])', '') AS STRING) AS `TANGGAL AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`MULAI`, r'([\'\"])', '') AS STRING) AS `MULAI`,
+  SAFE_CAST(REGEXP_REPLACE(`JATUH TEMPO`, r'([\'\"])', '') AS STRING) AS `JATUH TEMPO`,
+  SAFE_CAST(REGEXP_REPLACE(`KATAGORI DEBITUR`, r'([\'\"])', '') AS STRING) AS `KATAGORI DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`KET KATAGORI DEBITUR`, r'([\'\"])', '') AS STRING) AS `KET KATAGORI DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`KATEGORI PORTOFOLIO`, r'([\'\"])', '') AS STRING) AS `KATEGORI PORTOFOLIO`,
+  SAFE_CAST(REGEXP_REPLACE(`KET KATEGORI PORTOFOLIO`, r'([\'\"])', '') AS STRING) AS `KET KATEGORI PORTOFOLIO`,
+  SAFE_CAST(REGEXP_REPLACE(`SIFAT KREDIT`, r'([\'\"])', '') AS STRING) AS `SIFAT KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS PENGGUNAAN`, r'([\'\"])', '') AS STRING) AS `JENIS PENGGUNAAN`,
+  SAFE_CAST(REGEXP_REPLACE(`ORIENTASI PENGGUNAAN`, r'([\'\"])', '') AS STRING) AS `ORIENTASI PENGGUNAAN`,
+  SAFE_CAST(REGEXP_REPLACE(`CCY`, r'([\'\"])', '') AS STRING) AS `CCY`,
+  SAFE_CAST(REGEXP_REPLACE(`KREDIT PROGRAM PEMERINTAH`, r'([\'\"])', '') AS STRING) AS `KREDIT PROGRAM PEMERINTAH`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS ANTASENA`, r'([\'\"])', '') AS STRING) AS `KUALITAS ANTASENA`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS SLIK`, r'([\'\"])', '') AS STRING) AS `KUALITAS SLIK`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS WINCORE`, r'([\'\"])', '') AS STRING) AS `KUALITAS WINCORE`,
+  SAFE_CAST(REGEXP_REPLACE(`TINGKAT SUKU BUNGA`, r'([\'\"])', '') AS STRING) AS `TINGKAT SUKU BUNGA`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS SUKU BUNGA`, r'([\'\"])', '') AS STRING) AS `JENIS SUKU BUNGA`,
+  SAFE_CAST(REGEXP_REPLACE(`SEKTOR EKONOMI`, r'([\'\"])', '') AS STRING) AS `SEKTOR EKONOMI`,
+  SAFE_CAST(REGEXP_REPLACE(`KETERANGAN SEKTOR EKONOMI`, r'([\'\"])', '') AS STRING) AS `KETERANGAN SEKTOR EKONOMI`,
+  SAFE_CAST(REGEXP_REPLACE(`SE REPORT`, r'([\'\"])', '') AS STRING) AS `SE REPORT`,
+  SAFE_CAST(REGEXP_REPLACE(`LOKASI PROYEK`, r'([\'\"])', '') AS STRING) AS `LOKASI PROYEK`,
+  SAFE_CAST(REGEXP_REPLACE(`KOTA OR KAB`, r'([\'\"])', '') AS STRING) AS `KOTA OR KAB`,
+  SAFE_CAST(REGEXP_REPLACE(`PROVINSI`, r'([\'\"])', '') AS STRING) AS `PROVINSI`,
+  SAFE_CAST(REGEXP_REPLACE(`WILAYAH`, r'([\'\"])', '') AS STRING) AS `WILAYAH`,
+  SAFE_CAST(REGEXP_REPLACE(`PLAFOND INDUK`, r'([-,\'\"])', '') AS STRING) AS `PLAFOND INDUK`,
+  SAFE_CAST(REGEXP_REPLACE(`PLAFOND`, r'([-,\'\"])', '') AS STRING) AS `PLAFOND`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMINAL KREDIT`, r'([-,\'\"])', '') AS STRING) AS `NOMINAL KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`KELONGGARAN TARIK UNCOMMITTED`, r'([-,\'\"])', '') AS STRING) AS `KELONGGARAN TARIK UNCOMMITTED`,
+  SAFE_CAST(REGEXP_REPLACE(`REALISASI PENCAIRAN BULAN BERJALAN`, r'([-,\'\"])', '') AS STRING) AS `REALISASI PENCAIRAN BULAN BERJALAN`,
+  SAFE_CAST(REGEXP_REPLACE(`JUMLAH`, r'([-,\'\"])', '') AS STRING) AS `JUMLAH`,
+  SAFE_CAST(REGEXP_REPLACE(`PENDAPATAN BUNGA YANK AKAN DITERIMA`, r'([-,\'\"])', '') AS STRING) AS `PENDAPATAN BUNGA YANK AKAN DITERIMA`,
+  SAFE_CAST(REGEXP_REPLACE(`NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT`, r'([-,\'\"])', '') AS STRING) AS `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`BTB OR CASH COL`, r'([-,\'\"])', '') AS STRING) AS `BTB OR CASH COL`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`,
+  partition_date
+FROM `data-collection-01.antasena_wincore_report.antasena_kerjasama_badan_usaha_2` 
+WHERE partition_date != "1970-01-01"
+
+---------------------------------
+
+SELECT 
+  SAFE_CAST(REGEXP_REPLACE(`No`, r'([\'\"])', '') AS STRING) AS `No`,
+  SAFE_CAST(REGEXP_REPLACE(`CIF`, r'([\'\"])', '') AS STRING) AS `CIF`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR IDENTITAS`, r'([\'\"])', '') AS STRING) AS `NOMOR IDENTITAS`,
+  SAFE_CAST(REGEXP_REPLACE(`NAMA DEBITUR`, r'([\'\"])', '') AS STRING) AS `NAMA DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`PRODUK`, r'([\'\"])', '') AS STRING) AS `PRODUK`,
+  SAFE_CAST(REGEXP_REPLACE(`KODE CABANG`, r'([\'\"])', '') AS STRING) AS `KODE CABANG`,
+  SAFE_CAST(REGEXP_REPLACE(`PELAPOR`, r'([\'\"])', '') AS STRING) AS `PELAPOR`,
+  SAFE_CAST(REGEXP_REPLACE(`LOAN STATUS`, r'([\'\"])', '') AS STRING) AS `LOAN STATUS`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING ANTASENA`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING ANTASENA`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING SLIK`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING SLIK`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS KREDIT`, r'([\'\"])', '') AS STRING) AS `JENIS KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`KETERANGAN JENIS KREDIT`, r'([\'\"])', '') AS STRING) AS `KETERANGAN JENIS KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR AKAD AWAL`, r'([\'\"])', '') AS STRING) AS `NOMOR AKAD AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AKAD AWAL`, r'([\'\"])', '') AS STRING) AS `TANGGAL AKAD AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR AKAD AKHIR`, r'([\'\"])', '') AS STRING) AS `NOMOR AKAD AKHIR`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AKAD AKHIR`, r'([\'\"])', '') AS STRING) AS `TANGGAL AKAD AKHIR`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AWAL`, r'([\'\"])', '') AS STRING) AS `TANGGAL AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`MULAI`, r'([\'\"])', '') AS STRING) AS `MULAI`,
+  SAFE_CAST(REGEXP_REPLACE(`JATUH TEMPO`, r'([\'\"])', '') AS STRING) AS `JATUH TEMPO`,
+  SAFE_CAST(REGEXP_REPLACE(`KATAGORI DEBITUR`, r'([\'\"])', '') AS STRING) AS `KATAGORI DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`KET KATAGORI DEBITUR`, r'([\'\"])', '') AS STRING) AS `KET KATAGORI DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`KATEGORI PORTOFOLIO`, r'([\'\"])', '') AS STRING) AS `KATEGORI PORTOFOLIO`,
+  SAFE_CAST(REGEXP_REPLACE(`KET KATEGORI PORTOFOLIO`, r'([\'\"])', '') AS STRING) AS `KET KATEGORI PORTOFOLIO`,
+  SAFE_CAST(REGEXP_REPLACE(`SIFAT KREDIT`, r'([\'\"])', '') AS STRING) AS `SIFAT KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS PENGGUNAAN`, r'([\'\"])', '') AS STRING) AS `JENIS PENGGUNAAN`,
+  SAFE_CAST(REGEXP_REPLACE(`ORIENTASI PENGGUNAAN`, r'([\'\"])', '') AS STRING) AS `ORIENTASI PENGGUNAAN`,
+  SAFE_CAST(REGEXP_REPLACE(`CCY`, r'([\'\"])', '') AS STRING) AS `CCY`,
+  SAFE_CAST(REGEXP_REPLACE(`KREDIT PROGRAM PEMERINTAH`, r'([\'\"])', '') AS STRING) AS `KREDIT PROGRAM PEMERINTAH`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS ANTASENA`, r'([\'\"])', '') AS STRING) AS `KUALITAS ANTASENA`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS SLIK`, r'([\'\"])', '') AS STRING) AS `KUALITAS SLIK`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS WINCORE`, r'([\'\"])', '') AS STRING) AS `KUALITAS WINCORE`,
+  SAFE_CAST(REGEXP_REPLACE(`TINGKAT SUKU BUNGA`, r'([\'\"])', '') AS STRING) AS `TINGKAT SUKU BUNGA`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS SUKU BUNGA`, r'([\'\"])', '') AS STRING) AS `JENIS SUKU BUNGA`,
+  SAFE_CAST(REGEXP_REPLACE(`SEKTOR EKONOMI`, r'([\'\"])', '') AS STRING) AS `SEKTOR EKONOMI`,
+  SAFE_CAST(REGEXP_REPLACE(`KETERANGAN SEKTOR EKONOMI`, r'([\'\"])', '') AS STRING) AS `KETERANGAN SEKTOR EKONOMI`,
+  SAFE_CAST(REGEXP_REPLACE(`SE REPORT`, r'([\'\"])', '') AS STRING) AS `SE REPORT`,
+  SAFE_CAST(REGEXP_REPLACE(`LOKASI PROYEK`, r'([\'\"])', '') AS STRING) AS `LOKASI PROYEK`,
+  SAFE_CAST(REGEXP_REPLACE(`KOTA OR KAB`, r'([\'\"])', '') AS STRING) AS `KOTA OR KAB`,
+  SAFE_CAST(REGEXP_REPLACE(`PROVINSI`, r'([\'\"])', '') AS STRING) AS `PROVINSI`,
+  SAFE_CAST(REGEXP_REPLACE(`WILAYAH`, r'([\'\"])', '') AS STRING) AS `WILAYAH`,
+  SAFE_CAST(REGEXP_REPLACE(`PLAFOND INDUK`, r'([-,\'\"])', '') AS STRING) AS `PLAFOND INDUK`,
+  SAFE_CAST(REGEXP_REPLACE(`PLAFOND`, r'([-,\'\"])', '') AS STRING) AS `PLAFOND`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMINAL KREDIT`, r'([-,\'\"])', '') AS STRING) AS `NOMINAL KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`KELONGGARAN TARIK UNCOMMITTED`, r'([-,\'\"])', '') AS STRING) AS `KELONGGARAN TARIK UNCOMMITTED`,
+  SAFE_CAST(REGEXP_REPLACE(`REALISASI PENCAIRAN BULAN BERJALAN`, r'([-,\'\"])', '') AS STRING) AS `REALISASI PENCAIRAN BULAN BERJALAN`,
+  SAFE_CAST(REGEXP_REPLACE(`JUMLAH`, r'([-,\'\"])', '') AS STRING) AS `JUMLAH`,
+  SAFE_CAST(REGEXP_REPLACE(`PENDAPATAN BUNGA YANK AKAN DITERIMA`, r'([-,\'\"])', '') AS STRING) AS `PENDAPATAN BUNGA YANK AKAN DITERIMA`,
+  SAFE_CAST(REGEXP_REPLACE(`NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT`, r'([-,\'\"])', '') AS STRING) AS `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`BTB OR CASH COL`, r'([-,\'\"])', '') AS STRING) AS `BTB OR CASH COL`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`,
+  partition_date
+ FROM `data-collection-01.antasena_wincore_report.antasena_langsung_umkm` 
+ WHERE partition_date != "1970-01-01"
+ 
+ ----------------------------------
+ 
+ SELECT 
+  SAFE_CAST(REGEXP_REPLACE(`No`, r'([\'\"])', '') AS STRING) AS `No`,
+  SAFE_CAST(REGEXP_REPLACE(`CIF`, r'([\'\"])', '') AS STRING) AS `CIF`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR IDENTITAS`, r'([\'\"])', '') AS STRING) AS `NOMOR IDENTITAS`,
+  SAFE_CAST(REGEXP_REPLACE(`NAMA DEBITUR`, r'([\'\"])', '') AS STRING) AS `NAMA DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`PRODUK`, r'([\'\"])', '') AS STRING) AS `PRODUK`,
+  SAFE_CAST(REGEXP_REPLACE(`KODE CABANG`, r'([\'\"])', '') AS STRING) AS `KODE CABANG`,
+  SAFE_CAST(REGEXP_REPLACE(`PELAPOR`, r'([\'\"])', '') AS STRING) AS `PELAPOR`,
+  SAFE_CAST(REGEXP_REPLACE(`LOAN STATUS`, r'([\'\"])', '') AS STRING) AS `LOAN STATUS`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING ANTASENA`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING ANTASENA`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING SLIK`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING SLIK`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS KREDIT`, r'([\'\"])', '') AS STRING) AS `JENIS KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`KETERANGAN JENIS KREDIT`, r'([\'\"])', '') AS STRING) AS `KETERANGAN JENIS KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR AKAD AWAL`, r'([\'\"])', '') AS STRING) AS `NOMOR AKAD AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AKAD AWAL`, r'([\'\"])', '') AS STRING) AS `TANGGAL AKAD AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR AKAD AKHIR`, r'([\'\"])', '') AS STRING) AS `NOMOR AKAD AKHIR`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AKAD AKHIR`, r'([\'\"])', '') AS STRING) AS `TANGGAL AKAD AKHIR`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AWAL`, r'([\'\"])', '') AS STRING) AS `TANGGAL AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`MULAI`, r'([\'\"])', '') AS STRING) AS `MULAI`,
+  SAFE_CAST(REGEXP_REPLACE(`JATUH TEMPO`, r'([\'\"])', '') AS STRING) AS `JATUH TEMPO`,
+  SAFE_CAST(REGEXP_REPLACE(`KATAGORI DEBITUR`, r'([\'\"])', '') AS STRING) AS `KATAGORI DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`KET KATAGORI DEBITUR`, r'([\'\"])', '') AS STRING) AS `KET KATAGORI DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`KATEGORI PORTOFOLIO`, r'([\'\"])', '') AS STRING) AS `KATEGORI PORTOFOLIO`,
+  SAFE_CAST(REGEXP_REPLACE(`KET KATEGORI PORTOFOLIO`, r'([\'\"])', '') AS STRING) AS `KET KATEGORI PORTOFOLIO`,
+  SAFE_CAST(REGEXP_REPLACE(`SIFAT KREDIT`, r'([\'\"])', '') AS STRING) AS `SIFAT KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS PENGGUNAAN`, r'([\'\"])', '') AS STRING) AS `JENIS PENGGUNAAN`,
+  SAFE_CAST(REGEXP_REPLACE(`ORIENTASI PENGGUNAAN`, r'([\'\"])', '') AS STRING) AS `ORIENTASI PENGGUNAAN`,
+  SAFE_CAST(REGEXP_REPLACE(`CCY`, r'([\'\"])', '') AS STRING) AS `CCY`,
+  SAFE_CAST(REGEXP_REPLACE(`KREDIT PROGRAM PEMERINTAH`, r'([\'\"])', '') AS STRING) AS `KREDIT PROGRAM PEMERINTAH`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS ANTASENA`, r'([\'\"])', '') AS STRING) AS `KUALITAS ANTASENA`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS SLIK`, r'([\'\"])', '') AS STRING) AS `KUALITAS SLIK`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS WINCORE`, r'([\'\"])', '') AS STRING) AS `KUALITAS WINCORE`,
+  SAFE_CAST(REGEXP_REPLACE(`TINGKAT SUKU BUNGA`, r'([\'\"])', '') AS STRING) AS `TINGKAT SUKU BUNGA`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS SUKU BUNGA`, r'([\'\"])', '') AS STRING) AS `JENIS SUKU BUNGA`,
+  SAFE_CAST(REGEXP_REPLACE(`SEKTOR EKONOMI`, r'([\'\"])', '') AS STRING) AS `SEKTOR EKONOMI`,
+  SAFE_CAST(REGEXP_REPLACE(`KETERANGAN SEKTOR EKONOMI`, r'([\'\"])', '') AS STRING) AS `KETERANGAN SEKTOR EKONOMI`,
+  SAFE_CAST(REGEXP_REPLACE(`SE REPORT`, r'([\'\"])', '') AS STRING) AS `SE REPORT`,
+  SAFE_CAST(REGEXP_REPLACE(`LOKASI PROYEK`, r'([\'\"])', '') AS STRING) AS `LOKASI PROYEK`,
+  SAFE_CAST(REGEXP_REPLACE(`KOTA OR KAB`, r'([\'\"])', '') AS STRING) AS `KOTA OR KAB`,
+  SAFE_CAST(REGEXP_REPLACE(`PROVINSI`, r'([\'\"])', '') AS STRING) AS `PROVINSI`,
+  SAFE_CAST(REGEXP_REPLACE(`WILAYAH`, r'([\'\"])', '') AS STRING) AS `WILAYAH`,
+  SAFE_CAST(REGEXP_REPLACE(`PLAFOND INDUK`, r'([-,\'\"])', '') AS STRING) AS `PLAFOND INDUK`,
+  SAFE_CAST(REGEXP_REPLACE(`PLAFOND`, r'([-,\'\"])', '') AS STRING) AS `PLAFOND`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMINAL KREDIT`, r'([-,\'\"])', '') AS STRING) AS `NOMINAL KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`KELONGGARAN TARIK UNCOMMITTED`, r'([-,\'\"])', '') AS STRING) AS `KELONGGARAN TARIK UNCOMMITTED`,
+  SAFE_CAST(REGEXP_REPLACE(`REALISASI PENCAIRAN BULAN BERJALAN`, r'([-,\'\"])', '') AS STRING) AS `REALISASI PENCAIRAN BULAN BERJALAN`,
+  SAFE_CAST(REGEXP_REPLACE(`JUMLAH`, r'([-,\'\"])', '') AS STRING) AS `JUMLAH`,
+  SAFE_CAST(REGEXP_REPLACE(`PENDAPATAN BUNGA YANK AKAN DITERIMA`, r'([-,\'\"])', '') AS STRING) AS `PENDAPATAN BUNGA YANK AKAN DITERIMA`,
+  SAFE_CAST(REGEXP_REPLACE(`NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT`, r'([-,\'\"])', '') AS STRING) AS `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`BTB OR CASH COL`, r'([-,\'\"])', '') AS STRING) AS `BTB OR CASH COL`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`,
+  partition_date
+FROM `data-collection-01.antasena_wincore_report.antasena_ljk_non_bank_executing`
+WHERE partition_date != "1970-01-01"
+
+---------------------------------
+
+SELECT 
+-- SAFE_CAST(REGEXP_REPLACE(`ID`, r'([\'\"])', '') AS STRING) AS `ID`,
+-- SAFE_CAST(REGEXP_REPLACE(`No`, r'([\'\"])', '') AS STRING) AS `No`,
+SAFE_CAST(REGEXP_REPLACE(`CIF`, r'([\'\"])', '') AS STRING) AS `CIF`,
+SAFE_CAST(REGEXP_REPLACE(`No referensi`, r'([\'\"])', '') AS STRING) AS `No referensi`,
+SAFE_CAST(REGEXP_REPLACE(`Nama`, r'([\'\"])', '') AS STRING) AS `Nama`,
+SAFE_CAST(REGEXP_REPLACE(`Plafond`, r'([-,\'\"])', '') AS STRING) AS `Plafond`,
+SAFE_CAST(REGEXP_REPLACE(`Outstanding`, r'([-,\'\"])', '') AS STRING) AS `Outstanding`,
+SAFE_CAST(REGEXP_REPLACE(`Interest`, r'([-,\'\"])', '') AS STRING) AS `Interest`,
+-- SAFE_CAST(REGEXP_REPLACE(`Sheet`, r'([\'\"])', '') AS STRING) AS `Sheet`,
+SAFE_CAST(REGEXP_REPLACE(`Product`, r'([\'\"])', '') AS STRING) AS `Product`,
+SAFE_CAST(REGEXP_REPLACE(`kd branch`, r'([\'\"])', '') AS STRING) AS `kd branch`,
+SAFE_CAST(REGEXP_REPLACE(`Tgl Hapus Buku`, r'([\'\"])', '') AS STRING) AS `Tgl Hapus Buku`
+FROM `data-collection-01.antasena_wincore_report.antasena_master_hapus_buku`
+
+-------------------------------------
+
+SELECT
+ACTACCU AS `CIF`, 
+TRIM(ACTDLRF) AS `No referensi`, 
+-- ACTSTAT AS STATUS,
+TRIM(ACTNAME)AS `Nama`,
+ap.loan_amount AS `Plafond`,
+-- ACTACAT AS JENIS_REKENING,
+-- (ACTAMNT/100) AS AMOUNT,
+MAX(IF(ACTACAT = '970', (ACTAMNT/100), NULL)) AS `Outstanding`,
+MAX(IF(ACTACAT = '975', (ACTAMNT/100), NULL)) AS `Interest`, 
+MDLPROD AS `Product`, 
+MDLBRCO AS `kd branch`,
+-- ACTNRDT AS `Tgl Hapus Buku`
+FORMAT_DATE('%Y-%m-%d', PARSE_DATE('%Y%m%d', CAST(ACTNRDT as STRING))) AS `Tgl Hapus Buku`,
+FROM `data-collection-01.vw_WINAMNDTA.vw_ACTPF`
+INNER JOIN `data-collection-01.vw_WINAMNDTA.vw_MDLPF` ON MDLDLRF = ACTDLRF AND MDLBRCO = ACTACBR
+LEFT JOIN `data-collection-01.rep_indo.apps1` as ap ON ap.ref_no = TRIM(ACTDLRF)
+WHERE
+ACTACAT IN ('970','975') AND ACTSTAT = 'A'
+GROUP BY 1,2,3,4,7,8,9
+
+----------------------------------
+
+SELECT 
+  -- SAFE_CAST(REGEXP_REPLACE(`ID`, r'([\'\"])', '') AS STRING) AS `ID`,
+  SAFE_CAST(REGEXP_REPLACE(`No Ref`, r'([\'\"])', '') AS STRING) AS `No Ref`,
+  SAFE_CAST(REGEXP_REPLACE(`Pembayaran Pokok`, r'([-,\'\"])', '') AS STRING) AS `Pembayaran Pokok`,
+  SAFE_CAST(REGEXP_REPLACE(`Pembayaran Bunga`, r'([-,()\'\"])', '') AS STRING) AS `Pembayaran Bunga`,
+  SAFE_CAST(REGEXP_REPLACE(`Tgl Pembayaran`, r'([\'\"])', '') AS STRING) AS `Tgl Pembayaran`
+FROM `data-collection-01.antasena_wincore_report.antasena_master_pembayaran`
+
+------------------------------------
+
+SELECT 
+  SAFE_CAST(REGEXP_REPLACE(`No Ref`, r'([\'\"])', '') AS STRING) AS `No Ref`,
+  SAFE_CAST(REGEXP_REPLACE(`Pembayaran Pokok`, r'([-,\'\"])', '') AS STRING) AS `Pembayaran Pokok`,
+  SAFE_CAST(REGEXP_REPLACE(`Pembayaran Bunga`, r'([-,\'\"])', '') AS STRING) AS `Pembayaran Bunga`,
+  SAFE_CAST(REGEXP_REPLACE(`Tgl Pembayaran`, r'([\'\"])', '') AS STRING) AS `Tgl Pembayaran`
+FROM `data-collection-01.antasena_wincore_report.antasena_master_pembayaran_cleansing`
+
+--------------------------------------
+
+WITH refpar AS (
+  SELECT
+    timemachine_event_id
+  , ROUND(value_number) AS value_number
+  FROM `data-collection-01.prod_crm.vw_indo_crm_timemachine_event_params`
+  WHERE timemachine_param_id = 246
+),
+
+df AS (
+  SELECT
+    te.app_id
+  , te.triggered
+  , te.`target_date` AS pay_date
+  , IFNULL(ABS(SUM(IF(tlr.account_type IN ('181500','181300','181400'), tlr.amount, 0.00))),0.00) AS capital
+  , IFNULL(ABS(SUM(IF(tlr.account_type IN ('182140','182120','182130'), tlr.amount, 0.00))),0.00) AS interest
+  , IFNULL(ABS(SUM(IF(tlr.account_type IN ('183400','183200','183300'), tlr.amount, 0.00))),0.00) AS m_fee
+  , IFNULL(ABS(SUM(IF(tlr.account_type IN ('184170','184130','184140'), tlr.amount, 0.00))),0.00) AS add_fee
+  , IFNULL(ABS(SUM(IF(tlr.account_type IN ('186400 26','186200 26','186300 26'), tlr.amount, 0.00))),0.00) AS insurance
+  , IFNULL(ABS(SUM(IF(tlr.account_type IN ('186400 XX','186200 XX','186300 XX'), tlr.amount, 0.00))),0.00) AS other
+  , IFNULL(ABS(SUM(IF(tlr.account_type IN ('186400 24','186200 24','186300 24'), tlr.amount, 0.00))),0.00) AS coll_fee
+  , IFNULL(ABS(SUM(IF(tlr.account_type IN ('186400 25','186200 25','186300 25'), tlr.amount, 0.00))),0.00) AS coll_int
+  , IFNULL(ABS(SUM(IF(tlr.account_type IN ('186400 22','186200 22','186300 22'), tlr.amount, 0.00))),0.00) AS resign_fee
+  , IFNULL(ABS(SUM(IF(tlr.account_type IN ('186400 23','186200 23','186300 23'), tlr.amount, 0.00))),0.00) AS court_fee
+  , IFNULL(tch.customer_occupation, '') AS occupation
+  , IFNULL(ABS(SUM(IF(tlr.account_type IN ('182240','182220','182230'), tlr.amount, 0.00))),0.00) AS capital_debt_interest
+  , IFNULL(tah.loan_purpose_type, '') AS purpose
+  , MAX(IF(te.event_type='app_refinance_payment_received', 1, 0)) source /* if from another app, then 1, else 0 */
+  , MIN(IFNULL((SELECT sum(amount) FROM `data-collection-01.vw_indo_crm.vw_timemachine_ledger_rows` tlr WHERE tlr.app_id=te.app_id AND tlr.`account_type` IN ('181100','181200','181100 RC','181300','181400','181500') AND tlr.created<=te.created), 0.00)) cap_saldo
+  , MAX(EXISTS(
+    SELECT * 
+    FROM `data-collection-01.vw_rep_indo.vw_tags_app_tags` tat 
+    LEFT JOIN `data-collection-01.vw_rep_indo.vw_tags` t ON t.tag_id = tat.tag_id 
+    LEFT JOIN refpar ON refpar.timemachine_event_id = te.timemachine_event_id
+    WHERE tat.app_id = refpar.value_number
+    AND (t.name = 'PAYMENT_FREE_MONTH' OR t.name = 'FULL_PAYMENT_FREE_MONTH')
+  )) AS source_is_payment_holiday
+  , CASE WHEN EXISTS (SELECT 1 FROM `data-collection-01.vw_rep_indo.vw_bki_report` bkir JOIN `data-collection-01.vw_rep_indo.vw_bki_loan` bkil ON bkil.bki_report_id = bkir.bki_report_id
+          WHERE bkir.cust_id = te.cust_id AND bkir.report_date >= DATE(tah.created) AND bkir.report_date <= tah.loan_paid_out_date
+            AND bkil.golongan > 0 AND bkil.golongan != 99 AND bkil.golongan IS NOT NULL ) THEN 1 ELSE 0 END AS other_than_99_golongan_exists
+  FROM `data-collection-01.vw_indo_crm.vw_timemachine_events` te
+    JOIN `data-collection-01.indo_crm.timemachine_app_helper1` tah ON te.app_id=tah.app_id
+    LEFT JOIN `data-collection-01.vw_rep_indo.vw_timemachine_customer_helper` tch ON tch.cust_id = te.cust_id
+    LEFT JOIN `data-collection-01.vw_indo_crm.vw_timemachine_ledger_rows` tlr ON tlr.timemachine_event_id=te.timemachine_event_id
+
+    WHERE te.event_type IN ('app_payment_allocation','app_refinance_payment_received','app_payment_received')
+          -- AND te.`target_date` BETWEEN '2024-01-01' AND '2024-01-01' -- CHANGE THIS FILTER DATE !!!
+          AND NOT EXISTS(SELECT * FROM `data-collection-01.vw_indo_crm.vw_timemachine_events`AS `tmec` WHERE `tmec`.`timemachine_parent_event_id` = `te`.`timemachine_event_id` AND `tmec`.`event_type` = 'event_cancelled')
+
+          -- ONLY show payments from Write OFF customers
+          AND EXISTS(
+              SELECT 1 FROM `data-collection-01.vw_rep_indo.vw_tags_cust_tags` tct
+              WHERE tct.cust_id = te.app_id
+              AND tct.tag_id in (115, 116) -- tag_id (115 = WRITE_OFF, 116=WRITE_OFF_DPD)
+        )
+
+          -- Exclude loan already transferred to 3rd party !!
+          AND NOT EXISTS(
+              SELECT tat.app_id FROM `data-collection-01.vw_rep_indo.vw_tags_app_tags` tat
+              JOIN `data-collection-01.vw_rep_indo.vw_tags` t on tat.tag_id = t.tag_id
+              WHERE tat.app_id = te.app_id
+              AND t.name = 'TRANSFERRED_LOAN'
+          )
+
+        -- ignore MLP1 and MLP2 loans!!:
+       and not (
+          tah.loan_product = 'MicroLoan'
+          and (SELECT count(app_id)
+              FROM `data-collection-01.indo_crm.timemachine_app_helper1` a2
+              WHERE a2.cust_id = tah.cust_id
+                and a2.loan_product = 'MicroLoan'
+                -- and a2.loan_paid_out_date > 0
+                and a2.loan_paid_out_date is not null
+                and a2.app_id < tah.app_id
+             ) < 2
+          )
+    
+    group by te.app_id, te.triggered, pay_date, occupation, purpose, te.cust_id, tah.created, tah.loan_paid_out_date, te.timemachine_event_id
+    ORDER BY te.app_id, te.triggered, te.timemachine_event_id -- sorting is needed to guarantee non-random order
+),
+
+distinct_values AS (
+  SELECT DISTINCT cast(df.triggered as string) as triggered
+  FROM df
+)
+
+SELECT df.app_id
+  , `data-collection-01.indo_crm_weekly_copy.refno`(df.app_id) as ref_no
+  , STRING_AGG(distinct_values.triggered, ',' ORDER BY distinct_values.triggered) AS triggered
+  , MIN(df.pay_date) AS pay_date
+  , SUM(df.capital) AS capital
+  , SUM(df.interest) AS interest
+  , SUM(df.m_fee) AS m_fee
+  , SUM(df.add_fee) AS add_fee
+  , (df.interest + df.m_fee + df.add_fee) as interest_total
+  , SUM(df.insurance) AS insurance
+  , SUM(df.other) AS other
+  , SUM(df.coll_fee) AS coll_fee
+  , SUM(df.coll_int) AS coll_int
+  , SUM(df.resign_fee) AS resign_fee
+  , SUM(df.court_fee) AS court_fee
+  , SUM(df.capital_debt_interest) AS capital_debt_interest
+  , MIN(df.occupation) AS occupation
+  , MIN(df.purpose) AS purpose
+  , MAX(df.source) AS source
+  , MIN(df.cap_saldo) AS cap_saldo -- IF cap_saldo =0 its mean last payment
+  , MAX(df.source_is_payment_holiday) AS source_is_payment_holiday
+FROM df
+JOIN distinct_values ON cast(df.triggered as string) = distinct_values.triggered
+GROUP BY df.app_id, interest_total
+HAVING capital> 0 OR interest> 0 OR m_fee> 0 OR add_fee> 0 OR other> 0 OR coll_fee> 0 OR capital_debt_interest> 0
+
+------------------------------------------------
+
+SELECT 
+  SAFE_CAST(REGEXP_REPLACE(`No`, r'([\'\"])', '') AS STRING) AS `No`,
+  SAFE_CAST(REGEXP_REPLACE(`CIF`, r'([\'\"])', '') AS STRING) AS `CIF`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR IDENTITAS`, r'([\'\"])', '') AS STRING) AS `NOMOR IDENTITAS`,
+  SAFE_CAST(REGEXP_REPLACE(`NAMA DEBITUR`, r'([\'\"])', '') AS STRING) AS `NAMA DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`PRODUK`, r'([\'\"])', '') AS STRING) AS `PRODUK`,
+  SAFE_CAST(REGEXP_REPLACE(`KODE CABANG`, r'([\'\"])', '') AS STRING) AS `KODE CABANG`,
+  SAFE_CAST(REGEXP_REPLACE(`PELAPOR`, r'([\'\"])', '') AS STRING) AS `PELAPOR`,
+  SAFE_CAST(REGEXP_REPLACE(`LOAN STATUS`, r'([\'\"])', '') AS STRING) AS `LOAN STATUS`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING ANTASENA`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING ANTASENA`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING SLIK`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING SLIK`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS KREDIT`, r'([\'\"])', '') AS STRING) AS `JENIS KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`KETERANGAN JENIS KREDIT`, r'([\'\"])', '') AS STRING) AS `KETERANGAN JENIS KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR AKAD AWAL`, r'([\'\"])', '') AS STRING) AS `NOMOR AKAD AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AKAD AWAL`, r'([\'\"])', '') AS STRING) AS `TANGGAL AKAD AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR AKAD AKHIR`, r'([\'\"])', '') AS STRING) AS `NOMOR AKAD AKHIR`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AKAD AKHIR`, r'([\'\"])', '') AS STRING) AS `TANGGAL AKAD AKHIR`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AWAL`, r'([\'\"])', '') AS STRING) AS `TANGGAL AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`MULAI`, r'([\'\"])', '') AS STRING) AS `MULAI`,
+  SAFE_CAST(REGEXP_REPLACE(`JATUH TEMPO`, r'([\'\"])', '') AS STRING) AS `JATUH TEMPO`,
+  SAFE_CAST(REGEXP_REPLACE(`KATAGORI DEBITUR`, r'([\'\"])', '') AS STRING) AS `KATAGORI DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`KET KATAGORI DEBITUR`, r'([\'\"])', '') AS STRING) AS `KET KATAGORI DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`KATEGORI PORTOFOLIO`, r'([\'\"])', '') AS STRING) AS `KATEGORI PORTOFOLIO`,
+  SAFE_CAST(REGEXP_REPLACE(`KET KATEGORI PORTOFOLIO`, r'([\'\"])', '') AS STRING) AS `KET KATEGORI PORTOFOLIO`,
+  SAFE_CAST(REGEXP_REPLACE(`SIFAT KREDIT`, r'([\'\"])', '') AS STRING) AS `SIFAT KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS PENGGUNAAN`, r'([\'\"])', '') AS STRING) AS `JENIS PENGGUNAAN`,
+  SAFE_CAST(REGEXP_REPLACE(`ORIENTASI PENGGUNAAN`, r'([\'\"])', '') AS STRING) AS `ORIENTASI PENGGUNAAN`,
+  SAFE_CAST(REGEXP_REPLACE(`CCY`, r'([\'\"])', '') AS STRING) AS `CCY`,
+  SAFE_CAST(REGEXP_REPLACE(`KREDIT PROGRAM PEMERINTAH`, r'([\'\"])', '') AS STRING) AS `KREDIT PROGRAM PEMERINTAH`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS ANTASENA`, r'([\'\"])', '') AS STRING) AS `KUALITAS ANTASENA`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS SLIK`, r'([\'\"])', '') AS STRING) AS `KUALITAS SLIK`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS WINCORE`, r'([\'\"])', '') AS STRING) AS `KUALITAS WINCORE`,
+  SAFE_CAST(REGEXP_REPLACE(`TINGKAT SUKU BUNGA`, r'([\'\"])', '') AS STRING) AS `TINGKAT SUKU BUNGA`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS SUKU BUNGA`, r'([\'\"])', '') AS STRING) AS `JENIS SUKU BUNGA`,
+  SAFE_CAST(REGEXP_REPLACE(`SEKTOR EKONOMI`, r'([\'\"])', '') AS STRING) AS `SEKTOR EKONOMI`,
+  SAFE_CAST(REGEXP_REPLACE(`KETERANGAN SEKTOR EKONOMI`, r'([\'\"])', '') AS STRING) AS `KETERANGAN SEKTOR EKONOMI`,
+  SAFE_CAST(REGEXP_REPLACE(`SE REPORT`, r'([\'\"])', '') AS STRING) AS `SE REPORT`,
+  SAFE_CAST(REGEXP_REPLACE(`LOKASI PROYEK`, r'([\'\"])', '') AS STRING) AS `LOKASI PROYEK`,
+  SAFE_CAST(REGEXP_REPLACE(`KOTA OR KAB`, r'([\'\"])', '') AS STRING) AS `KOTA OR KAB`,
+  SAFE_CAST(REGEXP_REPLACE(`PROVINSI`, r'([\'\"])', '') AS STRING) AS `PROVINSI`,
+  SAFE_CAST(REGEXP_REPLACE(`WILAYAH`, r'([\'\"])', '') AS STRING) AS `WILAYAH`,
+  SAFE_CAST(REGEXP_REPLACE(`PLAFOND INDUK`, r'([-,\'\"])', '') AS STRING) AS `PLAFOND INDUK`,
+  SAFE_CAST(REGEXP_REPLACE(`PLAFOND`, r'([-,\'\"])', '') AS STRING) AS `PLAFOND`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMINAL KREDIT`, r'([-,\'\"])', '') AS STRING) AS `NOMINAL KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`KELONGGARAN TARIK UNCOMMITTED`, r'([-,\'\"])', '') AS STRING) AS `KELONGGARAN TARIK UNCOMMITTED`,
+  SAFE_CAST(REGEXP_REPLACE(`REALISASI PENCAIRAN BULAN BERJALAN`, r'([-,\'\"])', '') AS STRING) AS `REALISASI PENCAIRAN BULAN BERJALAN`,
+  SAFE_CAST(REGEXP_REPLACE(`JUMLAH`, r'([-,\'\"])', '') AS STRING) AS `JUMLAH`,
+  SAFE_CAST(REGEXP_REPLACE(`PENDAPATAN BUNGA YANK AKAN DITERIMA`, r'([-,\'\"])', '') AS STRING) AS `PENDAPATAN BUNGA YANK AKAN DITERIMA`,
+  SAFE_CAST(REGEXP_REPLACE(`NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT`, r'([-,\'\"])', '') AS STRING) AS `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`BTB OR CASH COL`, r'([-,\'\"])', '') AS STRING) AS `BTB OR CASH COL`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`,
+  partition_date
+FROM `data-collection-01.antasena_wincore_report.antasena_pbr`
+WHERE partition_date != "1970-01-01"
+
+-------------------------------------------
+
+SELECT 
+  SAFE_CAST(REGEXP_REPLACE(`Date Period`, r'([\'\"])', '') AS STRING) AS `Date Period`,
+  SAFE_CAST(REGEXP_REPLACE(`No`, r'([\'\"])', '') AS STRING) AS `No`,
+  SAFE_CAST(REGEXP_REPLACE(`CIF`, r'([\'\"])', '') AS STRING) AS `CIF`,
+  SAFE_CAST(REGEXP_REPLACE(`NAMA DEBITUR`, r'([\'\"])', '') AS STRING) AS `NAMA DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`PRODUK`, r'([\'\"])', '') AS STRING) AS `PRODUK`,
+  SAFE_CAST(REGEXP_REPLACE(`KODE CABANG`, r'([\'\"])', '') AS STRING) AS `KODE CABANG`,
+  SAFE_CAST(REGEXP_REPLACE(`PELAPOR`, r'([\'\"])', '') AS STRING) AS `PELAPOR`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING ANTASENA`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING ANTASENA`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR REKENING SLIK`, r'([\'\"])', '') AS STRING) AS `NOMOR REKENING SLIK`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS KREDIT`, r'([\'\"])', '') AS STRING) AS `JENIS KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`KETERANGAN JENIS KREDIT`, r'([\'\"])', '') AS STRING) AS `KETERANGAN JENIS KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR AKAD AWAL`, r'([\'\"])', '') AS STRING) AS `NOMOR AKAD AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AKAD AWAL`, r'([\'\"])', '') AS STRING) AS `TANGGAL AKAD AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR AKAD AKHIR`, r'([\'\"])', '') AS STRING) AS `NOMOR AKAD AKHIR`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AKAD AKHIR`, r'([\'\"])', '') AS STRING) AS `TANGGAL AKAD AKHIR`,
+  SAFE_CAST(REGEXP_REPLACE(`TANGGAL AWAL`, r'([\'\"])', '') AS STRING) AS `TANGGAL AWAL`,
+  SAFE_CAST(REGEXP_REPLACE(`MULAI`, r'([\'\"])', '') AS STRING) AS `MULAI`,
+  SAFE_CAST(REGEXP_REPLACE(`JATUH TEMPO`, r'([\'\"])', '') AS STRING) AS `JATUH TEMPO`,
+  SAFE_CAST(REGEXP_REPLACE(`KATAGORI DEBITUR`, r'([\'\"])', '') AS STRING) AS `KATAGORI DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(REPLACE(REPLACE(`KET KATAGORI DEBITUR`, '\\x96', '-'), '–', '-'), r'([\'\"])', '') AS STRING) AS `KET KATAGORI DEBITUR`,
+  SAFE_CAST(REGEXP_REPLACE(`KATEGORI PORTOFOLIO`, r'([\'\"])', '') AS STRING) AS `KATEGORI PORTOFOLIO`,
+  SAFE_CAST(REGEXP_REPLACE(`KET KATEGORI PORTOFOLIO`, r'([\'\"])', '') AS STRING) AS `KET KATEGORI PORTOFOLIO`,
+  SAFE_CAST(REGEXP_REPLACE(`SIFAT KREDIT`, r'([\'\"])', '') AS STRING) AS `SIFAT KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS PENGGUNAAN`, r'([\'\"])', '') AS STRING) AS `JENIS PENGGUNAAN`,
+  SAFE_CAST(REGEXP_REPLACE(`ORIENTASI PENGGUNAAN`, r'([\'\"])', '') AS STRING) AS `ORIENTASI PENGGUNAAN`,
+  SAFE_CAST(REGEXP_REPLACE(`CCY`, r'([\'\"])', '') AS STRING) AS `CCY`,
+  SAFE_CAST(REGEXP_REPLACE(`KREDIT PROGRAM PEMERINTAH`, r'([\'\"])', '') AS STRING) AS `KREDIT PROGRAM PEMERINTAH`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS ANTASENA`, r'([\'\"])', '') AS STRING) AS `KUALITAS ANTASENA`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS SLIK`, r'([\'\"])', '') AS STRING) AS `KUALITAS SLIK`,
+  SAFE_CAST(REGEXP_REPLACE(`KUALITAS WINCORE`, r'([\'\"])', '') AS STRING) AS `KUALITAS WINCORE`,
+  SAFE_CAST(REGEXP_REPLACE(`TINGKAT SUKU BUNGA`, r'([\'\"])', '') AS STRING) AS `TINGKAT SUKU BUNGA`,
+  SAFE_CAST(REGEXP_REPLACE(`JENIS SUKU BUNGA`, r'([\'\"])', '') AS STRING) AS `JENIS SUKU BUNGA`,
+  SAFE_CAST(REGEXP_REPLACE(`SEKTOR EKONOMI`, r'([\'\"])', '') AS STRING) AS `SEKTOR EKONOMI`,
+  SAFE_CAST(REGEXP_REPLACE(`KETERANGAN SEKTOR EKONOMI`, r'([\'\"])', '') AS STRING) AS `KETERANGAN SEKTOR EKONOMI`,
+  SAFE_CAST(REGEXP_REPLACE(`LOKASI PROYEK`, r'([\'\"])', '') AS STRING) AS `LOKASI PROYEK`,
+  SAFE_CAST(REGEXP_REPLACE(`KOTA OR KAB`, r'([\'\"])', '') AS STRING) AS `KOTA OR KAB`,
+  SAFE_CAST(REGEXP_REPLACE(`PROVINSI`, r'([\'\"])', '') AS STRING) AS `PROVINSI`,
+  SAFE_CAST(REGEXP_REPLACE(`WILAYAH`, r'([\'\"])', '') AS STRING) AS `WILAYAH`,
+  SAFE_CAST(REGEXP_REPLACE(`PLAFOND INDUK`, r'([-,\'\"])', '') AS STRING) AS `PLAFOND INDUK`,
+  SAFE_CAST(REGEXP_REPLACE(`PLAFOND`, r'([-,\'\"])', '') AS STRING) AS `PLAFOND`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMINAL KREDIT`, r'([-,\'\"])', '') AS STRING) AS `NOMINAL KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`KELONGGARAN TARIK UNCOMMITTED`, r'([-,\'\"])', '') AS STRING) AS `KELONGGARAN TARIK UNCOMMITTED`,
+  SAFE_CAST(REGEXP_REPLACE(`REALISASI PENCAIRAN BULAN BERJALAN`, r'([-,\'\"])', '') AS STRING) AS `REALISASI PENCAIRAN BULAN BERJALAN`,
+  SAFE_CAST(REGEXP_REPLACE(`JUMLAH`, r'([-,\'\"])', '') AS STRING) AS `JUMLAH`,
+  SAFE_CAST(REGEXP_REPLACE(`PENDAPATAN BUNGA YANK AKAN DITERIMA`, r'([-,\'\"])', '') AS STRING) AS `PENDAPATAN BUNGA YANK AKAN DITERIMA`,
+  SAFE_CAST(REGEXP_REPLACE(`NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT`, r'([-,\'\"])', '') AS STRING) AS `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT`,
+  SAFE_CAST(REGEXP_REPLACE(`BTB OR CASH COL`, r'([-,\'\"])', '') AS STRING) AS `BTB OR CASH COL`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`, r'([-,\'\"])', '') AS STRING) AS `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`,
+  SAFE_CAST(REGEXP_REPLACE(`LOAN STATUS`, r'([\'\"])', '') AS STRING) AS `LOAN STATUS`,
+  SAFE_CAST(REGEXP_REPLACE(`NOMOR IDENTITAS`, r'([\'\"])', '') AS STRING) AS `NOMOR IDENTITAS`,
+  SAFE_CAST(REGEXP_REPLACE(`SE REPORT`, r'([\'\"])', '') AS STRING) AS `SE REPORT`,
+  partition_date
+FROM `data-collection-01.antasena_wincore_report.antasena_wincore_report` 
+WHERE partition_date != "1970-01-01"
+
+
+-----------------------------------
+
+-- 1. Condense BUK Report (Form 0300 M)
+
+SELECT 
+  CIF as cif, 
+  `NAMA DEBITUR` as nama_debitur, 
+  `NOMOR IDENTITAS` as nomor_identitas,
+  `NOMOR REKENING` as nomor_rekening,
+  `JENIS PENGGUNAAN` as jenis_penggunaan, 
+  PLAFOND AS plafon, 
+  `NOMINAL KREDIT` as baki_debet, 
+  `SEKTOR EKONOMI` as sektor_ekonomi, 
+  `KUALITAS ANTASENA` AS kualitas,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  -- `Date Period` = '2023-06' AND 
+  `KUALITAS ANTASENA` IN ('3', '4', '5')
+  --  partition_date = "2023-06-30"
+ORDER BY 
+  safe_cast(`NOMINAL KREDIT` as INT64) DESC
+-- LIMIT 
+--   15
+
+----------------------------------------------
+
+-- 10. KAP PPAK Report
+
+SELECT 
+  KUALITAS as kualitas, 
+  SUM(PPKA) AS ppka_1, 
+  SUM(`BAKI DEBET`) AS baki_debet, 
+  SUM(`NILAI AGUNAN`) AS nilai_agunan,
+  partition_date
+FROM (
+  SELECT 
+    CASE
+      WHEN KUALITAS = 'Lancar' THEN `BAKI DEBET` * 1/100
+      WHEN KUALITAS = 'Lancar (Cash Collateral)' THEN 0
+      WHEN KUALITAS = 'Dalam Perhatian Khusus' THEN `BAKI DEBET` * 5/100
+      WHEN KUALITAS = 'Kurang Lancar' THEN `BAKI DEBET` * 15/100
+      WHEN KUALITAS = 'Diragukan' THEN (`BAKI DEBET` - `NILAI AGUNAN`) * 50/100
+      WHEN KUALITAS = 'Macet' THEN (`BAKI DEBET` - `NILAI AGUNAN`) * 100/100
+    END AS PPKA, 
+    *
+  FROM (
+    SELECT 
+      safe_cast(JUMLAH as INT64) AS `BAKI DEBET`, 
+      safe_cast(`NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT` as INT64) AS `NILAI AGUNAN`, 
+      `KUALITAS ANTASENA` AS KOL, 
+      CASE
+        WHEN `KUALITAS ANTASENA` = '1' AND (`BTB OR CASH COL` = '0' OR `BTB OR CASH COL` IS NULL) THEN 'Lancar'
+        WHEN `KUALITAS ANTASENA` = '1' AND `BTB OR CASH COL` != '0' THEN 'Lancar (Cash Collateral)'
+        WHEN `KUALITAS ANTASENA` = '2' THEN 'Dalam Perhatian Khusus'
+        WHEN `KUALITAS ANTASENA` = '3' THEN 'Kurang Lancar'
+        WHEN `KUALITAS ANTASENA` = '4' THEN 'Diragukan'
+        WHEN `KUALITAS ANTASENA` = '5' THEN 'Macet'
+        ELSE 'False Statement!'
+      END AS KUALITAS,
+      partition_date
+    FROM 
+      `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+    -- where partition_date = '2023-06-30'
+   ) AS A
+) AS B
+GROUP BY 
+  KUALITAS, partition_date;
+  
+  ----------------------------------
+  
+  -- 11. Kategori Portofolio - Report (Kusuma Bangsa)
+
+SELECT 
+  `Date Period` as date_period, 
+  'KB' AS cabang, 
+  `Kategori Portofolio` as kategori_portofolio, 
+  SUM(safe_cast(`Jumlah` as INT64)) AS os, 
+  SUM(safe_cast(`KELONGGARAN TARIK UNCOMMITTED` as INT64)) AS kt,
+  SUM(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64)) AS pyad, 
+  SUM(safe_cast(`BTB OR CASH Col` as INT64)) AS btb_or_cash_col,
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64)) AS ckpn_baik, 
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64)) AS ckpn_kurang_baik, 
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64)) AS ckpn_tidak_baik,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  `Kode Cabang` IN ('0300', '0230')
+GROUP BY 
+  `Kategori Portofolio`, 
+  `Date Period`,
+  partition_date
+  
+------------------------
+
+-- 12. Kategori Portofolio - Report (SGY, KB, JKT)
+
+SELECT 
+  `Date Period` as date_period, 
+  `Kategori Portofolio` as kategori_portofolio, 
+  SUM(safe_cast(`Jumlah` as INT64)) AS os, 
+  SUM(safe_cast(`KELONGGARAN TARIK UNCOMMITTED` as INT64)) AS kt,
+  SUM(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64)) AS pyad, 
+  SUM(safe_cast(`NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT` as INT64)) AS nilai_agunan,
+  SUM(safe_cast(`BTB OR CASH Col` as INT64)) AS btb_or_cash_col,
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64)) AS ckpn_baik, 
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64)) AS ckpn_kurang_baik, 
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64)) AS ckpn_tidak_baik,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+-- WHERE
+--   partition_date = '2023-06-30'
+GROUP BY 
+  `Kategori Portofolio`, 
+  `Date Period`,
+  partition_date
+  
+---------------------------------
+
+-- 13. Kategori Portofolio - Report (Thamrin)
+
+SELECT 
+  `Date Period` as date_period, 
+  PELAPOR as pelapor, 
+  `Kategori Portofolio` as kategori_portofolio, 
+  SUM(safe_cast(`Jumlah` as INT64)) AS os, 
+  SUM(safe_cast(`KELONGGARAN TARIK UNCOMMITTED` as INT64)) AS kt,
+  SUM(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64)) AS pyad, 
+  SUM(safe_cast(`BTB OR CASH Col` as INT64)) AS btb_or_cash_col,
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64)) AS ckpn_baik, 
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64)) AS ckpn_kurang_baik, 
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64)) AS ckpn_tidak_baik,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  PELAPOR = 'THAMRIN JKT'
+GROUP BY 
+  `Kategori Portofolio`, 
+  `Date Period`,
+  PELAPOR,
+  partition_date
+  
+------------------------
+
+-- 14. Kategori Portofolio - Report (Wiyung)
+
+SELECT 
+  `Date Period` as date_period, 
+  `Kode Cabang` as kode_cabang, 
+  `Kategori Portofolio` as kategori_portofolio, 
+  SUM(safe_cast(`Jumlah` as INT64)) AS os, 
+  SUM(safe_cast(`KELONGGARAN TARIK UNCOMMITTED` as INT64)) AS kt,
+  SUM(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64)) AS pyad, 
+  SUM(safe_cast(`NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT` as INT64)) AS nilai_agunan,
+  SUM(safe_cast(`BTB OR CASH Col` as INT64)) AS btb_or_cash_col,
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64)) AS ckpn_baik, 
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64)) AS ckpn_kurang_baik, 
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64)) AS ckpn_tidak_baik,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  `Kode Cabang` = '0200'
+GROUP BY 
+  `Kategori Portofolio`, 
+  `Date Period`,
+  `Kode Cabang`,
+  partition_date
+  
+-----------------------------------
+
+-- 15. Kelonggaran Tarik - ATMR
+
+SELECT 
+  `KET KATEGORI PORTOFOLIO` AS kategori_portofolio, 
+  SUM(safe_cast(`KELONGGARAN TARIK UNCOMMITTED` as INT64)) AS nilai_tra,
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64)) + SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64)) + SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64)) AS ckpn,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  -- partition_date = '2023-06-30' and
+  `KET KATEGORI PORTOFOLIO` LIKE 'Kredit Beragunan Properti Rumah Tinggal' OR 
+  `KET KATEGORI PORTOFOLIO` LIKE 'Kredit Beragun Properti Komersial' OR 
+  `KET KATEGORI PORTOFOLIO` LIKE 'Tagihan Kepada Korporasi' OR 
+  `KET KATEGORI PORTOFOLIO` LIKE 'Kredit Pegawai atau Pensiunan' OR 
+  `KET KATEGORI PORTOFOLIO` LIKE 'Tagihan Kepada Usaha Mikro, Kecil dan portfolio Ritel' OR 
+  `KATEGORI PORTOFOLIO` LIKE '53' OR 
+  `KATEGORI PORTOFOLIO` LIKE '54'
+GROUP BY 
+  `KET KATEGORI PORTOFOLIO`, 
+  `KATEGORI PORTOFOLIO`,
+  partition_date
+  
+-------------------------------
+
+-- 16. Kredit Beragun Properti Rumah Tinggal - ATMR
+
+SELECT 
+  `KET KATEGORI PORTOFOLIO` AS kategori_portofolio, 
+  SUM(safe_cast(`Jumlah` as INT64)) AS tagihan,
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64)) + SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64)) + SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64)) AS ckpn, 
+  SUM(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64)) AS pyad,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  `KET KATEGORI PORTOFOLIO` LIKE 'Kredit Beragunan Properti Rumah Tinggal'
+  -- and partition_date = '2023-06-30'
+GROUP BY 
+  `KET KATEGORI PORTOFOLIO`,
+  partition_date
+  
+---------------------------
+
+-- 17. Kredit Pegawai atau Pensiunan - ATMR
+
+SELECT 
+  `KET KATEGORI PORTOFOLIO` AS kategori_portofolio, 
+  SUM(safe_cast(`Jumlah` as INT64)) AS tagihan,
+  SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64)) + SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64)) + SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64)) AS ckpn, 
+  SUM(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64)) AS pyad,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  `KET KATEGORI PORTOFOLIO` LIKE 'Kredit Pegawai atau Pensiunan'
+  -- and partition_date = '2023-06-30'
+GROUP BY 
+  `KET KATEGORI PORTOFOLIO`,
+  partition_date
+  
+--------------------------
+
+-- 18. Kredit Pembiayaan Kepada PBR RPIM
+
+SELECT 
+  SUM(safe_cast(a.JUMLAH as INT64)) AS total, 
+  a.`KUALITAS SLIK` as kualitas_slik,
+  a.partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report` a
+INNER JOIN 
+  `data-collection-01.antasena_wincore_report.vw_antasena_pbr` b
+ON 
+  b.`NOMOR REKENING` = a.`NOMOR REKENING`
+-- WHERE a.partition_date = "2023-06-30"
+-- and b.partition_date = "2023-06-30"
+GROUP BY 
+  a.`KUALITAS SLIK`,
+  partition_date
+  
+----------------------------------
+
+-- 19. Kredit Pembiayaan LJK non UMKM RPIM
+
+SELECT 
+  SUM(safe_cast(a.JUMLAH as INT64)) AS total, 
+  a.`KUALITAS SLIK` as kualitas_slik,
+  a.partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report` a
+INNER JOIN 
+  `data-collection-01.antasena_wincore_report.vw_antasena_badan_usaha_non_ljk_non_umkm` b
+ON 
+  b.`NOMOR REKENING` = a.`NOMOR REKENING`
+-- WHERE a.partition_date = "2023-06-30"
+-- and b.partition_date = "2023-06-30"
+GROUP BY 
+  a.`KUALITAS SLIK`,
+  partition_date
+  
+---------------------------------
+
+-- 2. Condense BUK Report (Form 0402 M)
+
+SELECT 
+  CIF as cif, 
+  Nama AS nama_debitur, 
+  `Nomor Referensi` AS nomor_identitas, 
+  `Sektor Ekonomi` as sektor_ekonomi, 
+  `SE Report` as se_report, 
+  `TOTAL OS HB` as total_os_hb,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_hapus_buku`
+-- WHERE
+--   partition_date = '2023-06-30'
+ORDER BY 
+  safe_cast(`TOTAL OS HB` as INT64) DESC
+-- LIMIT 
+--   10
+
+---------------------------------
+
+-- 20. Kredit Pembiayaan Scara Langsung UMKM RPIM
+
+SELECT 
+  SUM(safe_cast(a.JUMLAH as INT64)) AS total, 
+  a.`KUALITAS SLIK` as kualitas_slik,
+  a.partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report` a
+INNER JOIN 
+  `data-collection-01.antasena_wincore_report.vw_antasena_langsung_umkm` b
+ON 
+  b.`NOMOR REKENING` = a.`NOMOR REKENING`
+-- WHERE a.partition_date = "2023-06-30"
+-- and b.partition_date = "2023-06-30"
+GROUP BY 
+  a.`KUALITAS SLIK`,
+  partition_date
+  
+------------------------------
+
+-- 21. KYB (15 Deb Inti Berdasarkan OS Terbesar)
+
+SELECT 
+  CIF as cif, 
+  `NAMA DEBITUR` as nama_debitur, 
+  PLAFOND AS os, 
+  `TINGKAT SUKU BUNGA` AS suku_bunga, 
+  `KUALITAS WINCORE` AS kolektibilitas, 
+  `KETERANGAN SEKTOR EKONOMI` AS sektor_ekonomi,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+-- WHERE
+--   partition_date = '2023-06-30'
+ORDER BY 
+  safe_cast(PLAFOND as INT64) DESC
+-- LIMIT 
+--   15
+
+---------------------------
+
+-- 22. KYB Report - Sebaran Kredit (Jenis Usaha)
+
+SELECT 
+  CASE 
+    WHEN `KATAGORI DEBITUR` = 'UM' THEN 'USAHA MIKRO'
+    WHEN `KATAGORI DEBITUR` = 'UK' THEN 'USAHA KECIL'
+    WHEN `KATAGORI DEBITUR` = 'UT' THEN 'USAHA MENENGAH'
+    WHEN `KATAGORI DEBITUR` = 'NU' THEN 'BUKAN DEBITUR UMKM'
+    ELSE 'False Statement!'
+  END AS jenis_usaha,
+  SUM(safe_cast(`JUMLAH` as INT64)) AS nominal,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+-- WHERE
+--   partition_date = '2023-06-30'
+GROUP BY 
+  jenis_usaha,
+  partition_date
+  
+---------------------------------
+
+-- 23. KYB Report - Sebaran Kredit (KTA & Non KTA) - Nominal
+
+SELECT 
+  CASE 
+    WHEN `JENIS SUKU BUNGA` = '1' THEN 'DEBITUR KTA'
+    WHEN `JENIS SUKU BUNGA` = '2' THEN 'DEBITUR NON KTA'
+    ELSE 'False Statement!'
+  END AS jenis_kredit, 
+  SUM(safe_cast(`JUMLAH` as INT64)) AS nominal,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+-- WHERE
+--   partition_date = '2023-06-30'
+GROUP BY 
+  jenis_kredit,
+  partition_date
+  
+-------------------------
+
+-- 24. KYB Report - Sebaran Kredit (KTA & Non KTA) - Nominal NPL
+
+SELECT 
+  CASE 
+    WHEN `JENIS SUKU BUNGA` = '1' THEN 'DEBITUR KTA'
+    WHEN `JENIS SUKU BUNGA` = '2' THEN 'DEBITUR NON KTA'
+    ELSE 'False Statement!'
+  END AS jenis_kredit, 
+  SUM(safe_cast(`JUMLAH` as INT64)) AS nominal_npl,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  `KUALITAS WINCORE` IN ('3', '4', '5')
+  -- and partition_date = '2023-06-30'
+GROUP BY 
+  jenis_kredit,
+  partition_date
+  
+----------------------------
+
+-- 25. KYB Report - Sebaran Kredit (Modal Kerja, Investasi, & Konsumsi)
+
+SELECT 
+  CASE 
+    WHEN `JENIS PENGGUNAAN` = '1' THEN 'MODAL KERJA'
+    WHEN `JENIS PENGGUNAAN` = '2' THEN 'INVESTASI'
+    WHEN `JENIS PENGGUNAAN` = '3' THEN 'KONSUMSI'
+    ELSE 'False Statement!'
+  END AS jenis_penggunaan_jp, 
+  SUM(safe_cast(`JUMLAH` as INT64)) AS nominal,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  `JENIS PENGGUNAAN` IN ('1', '2', '3')
+  -- and partition_date = '2023-06-30'
+GROUP BY 
+  jenis_penggunaan_jp,
+  partition_date
+  
+-------------------------------
+
+-- 26. Laporan Neraca Publikasi 2023
+
+SELECT 
+  CASE 
+    WHEN `SIFAT KREDIT` IN ('1', '5') THEN 'Kredit yang direstrukturisasi'
+    WHEN `KATAGORI DEBITUR` = 'NU' THEN 'Bukan debitur UMKM'
+    ELSE 'Debitur Usaha Mikro, Kecil dan Menengah(UMKM)'
+  END AS kredit_pembiyaan, 
+  `KUALITAS WINCORE` as kualitas_wincore, 
+  SUM(safe_cast(`JUMLAH` as INT64)) AS jumlah,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+-- WHERE
+--   partition_date = '2023-06-30'
+GROUP BY 
+  kredit_pembiyaan, 
+  `KUALITAS WINCORE`,
+  partition_date
+  
+-------------------------
+
+-- 27. LJK Non Bank Channelling Korporasi UMKM RPIM
+
+SELECT 
+  SUM(safe_cast(a.JUMLAH as INT64)) AS total, 
+  a.`KUALITAS SLIK` as kualitas_slik,
+  a.partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report` a
+INNER JOIN 
+  `data-collection-01.antasena_wincore_report.vw_antasena_kerjasama_badan_usaha_1` b
+ON 
+  b.`NOMOR REKENING` = a.`NOMOR REKENING`
+-- WHERE a.partition_date = "2023-06-30"
+-- and b.partition_date = "2023-06-30"
+GROUP BY 
+  a.`KUALITAS SLIK`,
+  partition_date
+  
+------------------------------------
+
+-- 28. LJK Non Bank Channelling UMKM RPIM
+
+SELECT 
+  SUM(safe_cast(a.JUMLAH as INT64)) AS total, 
+  a.`KUALITAS SLIK` as kualitas_slik,
+  a.partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report` a
+INNER JOIN 
+  `data-collection-01.antasena_wincore_report.vw_antasena_kerjasama_badan_usaha_2` b 
+ON 
+  b.`NOMOR REKENING` = a.`NOMOR AKAD AWAL`
+-- WHERE a.partition_date = "2023-06-30"
+-- and b.partition_date = "2023-06-30"
+GROUP BY 
+  a.`KUALITAS SLIK`,
+  partition_date
+  
+---------------------------
+
+-- 29. LJK Non Bank Executing RPIM
+
+SELECT 
+  SUM(safe_cast(a.JUMLAH as INT64)) AS total, 
+  a.`KUALITAS SLIK` as kualitas_slik,
+  a.partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report` a
+INNER JOIN 
+  `data-collection-01.antasena_wincore_report.vw_antasena_ljk_non_bank_executing` b
+ON 
+  b.`NOMOR REKENING` = a.`NOMOR REKENING`
+-- WHERE a.partition_date = "2023-06-30"
+-- and b.partition_date = "2023-06-30"
+GROUP BY 
+  a.`KUALITAS SLIK`,
+  partition_date
+  
+-------------------------------
+
+-- 3. Dafnom NonTunaiku (Percabang - Basuki Rahmat)
+
+SELECT 
+  `No` as `no`, 
+  PRODUK as produk, 
+  `NOMOR REKENING` as nomor_rekening, 
+  CIF as cif, 
+  `NAMA DEBITUR` as nama_debitur, 
+  `JENIS KREDIT` as jenis_kredit, 
+  MULAI as mulai, 
+  `JATUH TEMPO` as jatuh_tempo, 
+  `KATAGORI DEBITUR` as katagori_debitur, 
+  `KATEGORI PORTOFOLIO` as kategori_portofolio, 
+  `SIFAT KREDIT` as sifat_kredit, 
+  CCY as ccy, 
+  `KUALITAS ANTASENA` AS kualitas,
+  `TINGKAT SUKU BUNGA` as tingkat_suku_bunga, 
+  `SEKTOR EKONOMI` as sektor_ekonomi, 
+  `LOKASI PROYEK` as lokasi_proyek, 
+  PLAFOND as plafond, 
+  `NOMINAL KREDIT` as nominal_kredit, 
+  `KELONGGARAN TARIK UNCOMMITTED` as kelonggaran_tarik_uncommitted,
+  `REALISASI PENCAIRAN BULAN BERJALAN` AS realisasi_pencairan,
+  JUMLAH as jumlah, 
+  `PENDAPATAN BUNGA YANK AKAN DITERIMA` AS pendapatan_bunga,
+  `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT` as nilai_agunan_yg_dpt_diperhitungkan_kredit,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_baik,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_kurang_baik,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_tidak_baik,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  `KODE CABANG` = '0230'
+  
+---------------------------
+
+-- 30. NSFR Report 2023 (Non Tunaiku)
+
+SELECT 
+  `KUALITAS WINCORE` AS kolektabilitas, 
+  SUM(safe_cast(`JUMLAH` as INT64)) AS os, 
+  SUM(safe_cast(`KELONGGARAN TARIK UNCOMMITTED` as INT64)) AS kelonggaran_tarik,
+  CASE 
+    WHEN DATE_DIFF((SELECT MAX(partition_date) FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`), PARSE_DATE('%m/%d/%Y', MULAI), MONTH) < 6 THEN '< 6 Bulan'
+    WHEN DATE_DIFF((SELECT MAX(partition_date) FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`), PARSE_DATE('%m/%d/%Y', MULAI), MONTH) <= 12 THEN '> 6 Bulan - 1 THN'
+    ELSE '> 1 THN'
+  END AS keterangan,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  `KODE CABANG` IN ('0100', '0130', '0140', '0200', '0230', '0300')
+  -- and partition_date = '2023-06-30'
+GROUP BY 
+  kolektabilitas, 
+  `KODE CABANG`, 
+  keterangan,
+  partition_date
+  
+-------------------------------
+
+-- 31. NSFR Report 2023 (Tunaiku)
+
+SELECT KOLEKTIBILITAS as kolektibilitas, SUM(OS1) AS os, SUM(`KELONGGARAN TARIK 1`) AS kelonggaran_tarik, KETERANGAN as keterangan, partition_date
+FROM (
+  SELECT `KUALITAS WINCORE` AS KOLEKTIBILITAS, SUM(safe_cast(`JUMLAH` as INT64)) AS OS1, SUM(safe_cast(`KELONGGARAN TARIK UNCOMMITTED` as INT64)) AS `KELONGGARAN TARIK 1`,
+  partition_date,
+  CASE
+    WHEN a.MATRIKS < 6 THEN "< 6 Bulan"
+    WHEN a.MATRIKS <= 12 THEN "> 6 Bulan - 1 THN"
+    ELSE "> 1 THN"
+  END AS KETERANGAN
+  FROM (
+    SELECT DATE_DIFF((SELECT MAX(partition_date) FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`), PARSE_DATE('%m/%d/%Y', MULAI), MONTH) AS MATRIKS, *
+    FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+    -- WHERE partition_date = '2023-06-30'
+  ) AS a
+  WHERE `KODE CABANG` IN ("0110", "0111", "0112", "0113", "0114", "0115", "0116", "0117", "0118", "0119", "0121")
+  GROUP BY `KUALITAS WINCORE`, MATRIKS, partition_date
+) AS b
+GROUP BY KOLEKTIBILITAS, KETERANGAN, partition_date;
+
+----------------------------
+
+-- 32. Pelaporan Restruk OJK - POJK 48
+
+SELECT `UMKM OR Non-UMKM` as umkm_or_non_umkm, `SE REPORT` as se_report, COUNT(`CIF`) AS jumlah_debitur,
+SUM(`Baki Debet (Rp Miliar)`) AS baki_debet_rp_miliar, partition_date
+FROM (
+  SELECT `SE REPORT`, `CIF`, SUM(safe_cast(`JUMLAH` as INT64)) AS `Baki Debet (Rp Miliar)`, `KATAGORI DEBITUR`,
+  partition_date,
+  CASE
+    WHEN `KATAGORI DEBITUR` IN ("UM", "UK", "UT") THEN "UMKM"
+    WHEN `KATAGORI DEBITUR` = "NU" THEN "Non-UMKM"
+    ELSE "False!"
+  END AS `UMKM OR Non-UMKM`
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+  WHERE `SIFAT KREDIT` = '5'
+  GROUP BY `SE REPORT`, `CIF`, `KATAGORI DEBITUR`, partition_date
+) AS a
+GROUP BY `UMKM OR Non-UMKM`, `SE REPORT`, partition_date;
+
+-------------------------------
+
+-- 33. Realisasi Kredit per SE (Golongan Debitur)
+
+SELECT `Golongan Debitur` as golongan_debitur, SUM(`OUTSTANDING`) AS realisasi_mei,
+partition_date
+FROM (
+  SELECT `KATAGORI DEBITUR`, safe_cast(`JUMLAH` as INT64) AS OUTSTANDING,
+  partition_date,
+  CASE
+    WHEN `KATAGORI DEBITUR` IN ("UM", "UK", "UT") THEN "Kredit UMKM"
+    WHEN `KATAGORI DEBITUR` = "NU" THEN "Kredit Non-UMKM"
+    ELSE "False Statement!"
+  END AS `Golongan Debitur`
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+  -- WHERE partition_date = '2023-06-30'
+) AS a
+GROUP BY `Golongan Debitur`, partition_date;
+
+---------------------------------
+
+-- 34. Realisasi Kredit per SE (Jenis Penggunaan)
+
+SELECT `JENIS PENGGUNAAN JP` as jenis_penggunaan_jp, SUM(`TOTAL OS1`) AS realisasi_mei,
+partition_date
+FROM (
+  SELECT `JENIS PENGGUNAAN`, safe_cast(`JUMLAH` as INT64) AS `TOTAL OS1`,
+  partition_date,
+  CASE
+    WHEN `JENIS PENGGUNAAN` = "1" THEN "Modal Kerja (KMK)"
+    WHEN `JENIS PENGGUNAAN` = "2" THEN "Kredit Investasi (KI)"
+    WHEN `JENIS PENGGUNAAN` = "3" AND `PRODUK` IN ("KPRAR", "KPRSR") THEN "Kredit Konsumsi (KPR)"
+    ELSE "Kredit Konsumsi lainnya (Kartu Kredit, KKB, lain-lain)"
+  END AS `JENIS PENGGUNAAN JP`
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+  WHERE `JENIS PENGGUNAAN` IN ("1", "2", "3")
+  -- and partition_date = '2023-06-30'
+) AS A
+GROUP BY `JENIS PENGGUNAAN JP`, partition_date;
+
+------------------------------
+
+-- 35. Realisasi Kredit per SE (Sektor Ekonomi)
+
+SELECT `SE REPORT` AS sektor_ekonomi, SUM(safe_cast(`JUMLAH` as INT64)) AS realisasi_mei,
+partition_date
+FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+-- WHERE partition_date = '2023-06-30'
+GROUP BY `SE REPORT`, partition_date;
+
+---------------------------------------
+
+-- 36. Report Data Fasilitas Kredit 2023
+
+SELECT `No` as `no`, `NAMA DEBITUR` as nama_debitur, `NOMOR REKENING` as nomor_rekening, 
+`BTB OR CASH Col` AS btb_or_cash_col, `Jumlah` AS os, partition_date
+FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE (`Kode Cabang` IN ("0100", "0200", "0300")) AND `BTB OR CASH Col` <> '0';
+-- and partition_date = '2023-06-30';
+
+-------------------------------------
+
+-- 37. Report Data SKAI (Dafnom SME) 2023
+
+SELECT 
+  `No` as `no`,
+  `CIF` as cif,
+  `NAMA DEBITUR` as nama_debitur,
+  `PRODUK` as produk,
+  `KODE CABANG` as kode_cabang,
+  `NOMOR REKENING` as nomor_rekening,
+  `NOMOR REKENING ANTASENA` as nomor_rekening_antasena,
+  `NOMOR REKENING SLIK` as nomor_rekening_slik,
+  `JENIS KREDIT` as jenis_kredit,
+  `NOMOR AKAD AWAL` as nomor_akad_awal,
+  `TANGGAL AKAD AWAL` as tanggal_akad_awal,
+  `NOMOR AKAD AKHIR` as nomor_akad_akhir,
+  `TANGGAL AKAD AKHIR` as tanggal_akad_akhir,
+  `TANGGAL AWAL` as tanggal_awal,
+  `MULAI` as mulai,
+  `JATUH TEMPO` as jatuh_tempo,
+  `KATAGORI DEBITUR` as katagori_debitur,
+  `KATEGORI PORTOFOLIO` as kategori_portofolio,
+  `SIFAT KREDIT` as sifat_kredit,
+  `JENIS PENGGUNAAN` as jenis_penggunaan,
+  `ORIENTASI PENGGUNAAN` as orientasi_penggunaan,
+  `CCY` as ccy,
+  `KREDIT PROGRAM PEMERINTAH` as kredit_program_pemerintah,
+  `KUALITAS WINCORE` as kualitas_wincore,
+  `TINGKAT SUKU BUNGA` as tingkat_suku_bunga,
+  `JENIS SUKU BUNGA` as jenis_suku_bunga,
+  `SEKTOR EKONOMI` as sektor_ekonomi,
+  `LOKASI PROYEK` as lokasi_proyek,
+  `PLAFOND INDUK` as plafond_induk,
+  `PLAFOND` as plafond,
+  `NOMINAL KREDIT` as nominal_kredit,
+  `KELONGGARAN TARIK UNCOMMITTED` as kelonggaran_tarik_uncommitted,
+  `REALISASI PENCAIRAN BULAN BERJALAN` as realisasi_pencairan_bulan_berjalan,
+  `JUMLAH` as jumlah,
+  `PENDAPATAN BUNGA YANK AKAN DITERIMA` as pendapatan_bunga_yank_akan_diterima,
+  `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT` as nilai_agunan_yg_dpt_diperhitungkan_kredit,
+  `BTB OR CASH COL` as btb_or_cash_col,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_baik,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_kurang_baik,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_tidak_baik,
+  partition_date
+FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE `JENIS SUKU BUNGA` = "2";
+
+--------------------------------------------
+
+-- 38. Report Data SKAI (Jenis Kredit)
+
+SELECT `JENIS KREDIT` as jenis_kredit, SUM(`OUTSTANDING`) AS total_os,
+partition_date
+FROM (
+  SELECT `KET KATAGORI DEBITUR`, safe_cast(`JUMLAH` as INT64) AS OUTSTANDING,
+  CASE
+    WHEN `KET KATAGORI DEBITUR` = "Debitur Usaha Mikro, Kecil, dan Menengah - Mikro" THEN "KREDIT MIKRO"
+    WHEN `KET KATAGORI DEBITUR` = "Debitur Usaha Mikro, Kecil, dan Menengah -Kecil" THEN "KREDIT KECIL"
+    WHEN `KET KATAGORI DEBITUR` = "Debitur Usaha Mikro, Kecil, dan Menengah - Menengah" THEN "KREDIT MENENGAH"
+    WHEN `KET KATAGORI DEBITUR` = "Bukan Debitur Usaha Mikro, Kecil, dan Menengah" THEN "KREDIT NON UMKM"
+    ELSE "False Statement!"
+  END AS `JENIS KREDIT`,
+  partition_date
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+  -- WHERE partition_date = '2023-06-30'
+) AS a
+GROUP BY `JENIS KREDIT`, partition_date;
+
+-----------------------------------------------
+
+-- 39. Report Data SKAI (Secure Loan) - SME
+
+SELECT `SECURE LOAN` as secure_loan, `KOL` as kol, SUM(`OS`) AS outstanding, COUNT(`JUMLAH NASABAH`) AS jml_nasabah, partition_date
+FROM (
+  SELECT `JENIS SUKU BUNGA` AS `SECURE LOAN`, `KUALITAS WINCORE` AS KOL, safe_cast(`JUMLAH` as INT64) AS OS, `CIF` AS `JUMLAH NASABAH`, partition_date
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report` WHERE `JENIS SUKU BUNGA` = "2"
+  -- and partition_date = '2023-06-30'
+) AS a
+GROUP BY `KOL`, `SECURE LOAN`, partition_date;
+
+-------------------------------------------
+
+-- 4. Dafnom NonTunaiku (Percabang - Gandaria)
+
+SELECT 
+  `No` as `no`, 
+  PRODUK as produk, 
+  `NOMOR REKENING` as nomor_rekening, 
+  CIF as cif, 
+  `NAMA DEBITUR` as nama_debitur, 
+  `JENIS KREDIT` as jenis_kredit, 
+  MULAI as mulai, 
+  `JATUH TEMPO` as jatuh_tempo, 
+  `KATAGORI DEBITUR` as katagori_debitur, 
+  `KATEGORI PORTOFOLIO` as kategori_portofolio, 
+  `SIFAT KREDIT` as sifat_kredit, 
+  CCY as ccy, 
+  `KUALITAS ANTASENA` AS kualitas,
+  `TINGKAT SUKU BUNGA` as tingkat_suku_bunga, 
+  `SEKTOR EKONOMI` as sektor_ekonomi, 
+  `LOKASI PROYEK` as lokasi_proyek, 
+  PLAFOND as plafond, 
+  `NOMINAL KREDIT` as nominal_kredit, 
+  `KELONGGARAN TARIK UNCOMMITTED` as kelonggaran_tarik_uncommitted,
+  `REALISASI PENCAIRAN BULAN BERJALAN` AS realisasi_pencairan,
+  JUMLAH as jumlah, 
+  `PENDAPATAN BUNGA YANK AKAN DITERIMA` AS pendapatan_bunga,
+  `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT` as nilai_agunan_yg_dpt_diperhitungkan_kredit,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_baik,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_kurang_baik,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_tidak_baik,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  `KODE CABANG` = '0130'
+  
+----------------------------------
+
+-- 40. Report Data SKAI (Unsecure Loan) - Tunaiku
+
+SELECT `UNSECURE LOAN` as unsecure_loan, `KOL` as kol, SUM(`OS`) AS outstanding, COUNT(`JUMLAH NASABAH`) AS jml_nasabah, partition_date
+FROM (
+  SELECT `JENIS SUKU BUNGA` AS `UNSECURE LOAN`, `KUALITAS WINCORE` AS KOL, SUM(safe_cast(`JUMLAH` as INT64)) AS OS, `CIF` AS `JUMLAH NASABAH`, partition_date
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report` 
+  WHERE `JENIS SUKU BUNGA` = "1"
+  GROUP BY `CIF`, `JENIS SUKU BUNGA`, `KUALITAS WINCORE`, partition_date
+) AS a
+GROUP BY `KOL`, `UNSECURE LOAN`, partition_date
+
+---------------------------------
+
+-- 41. Report DEB NPL - KTA & Non KTA (MK, I, & K)
+
+SELECT `JENIS KREDIT` as jenis_kredit, SUM(`NOMINAL`) AS nominal_npl, partition_date
+FROM (
+  SELECT `JENIS SUKU BUNGA`, `KUALITAS WINCORE` AS KOL, safe_cast(`JUMLAH` as INT64) AS NOMINAL,
+  CASE
+    WHEN `JENIS SUKU BUNGA` = "1" AND `JENIS PENGGUNAAN` = "1" THEN "DEB NPL KTA MK"
+    WHEN `JENIS SUKU BUNGA` = "1" AND `JENIS PENGGUNAAN` = "2" THEN "DEB NPL KTA INVESTASI"
+    WHEN `JENIS SUKU BUNGA` = "1" AND `JENIS PENGGUNAAN` = "3" THEN "DEB NPL KTA KONSUMSI"
+    WHEN `JENIS SUKU BUNGA` = "2" AND `JENIS PENGGUNAAN` = "1" THEN "DEB NPL NON KTA MK"
+    WHEN `JENIS SUKU BUNGA` = "2" AND `JENIS PENGGUNAAN` = "2" THEN "DEB NPL NON KTA INVESTASI"
+    WHEN `JENIS SUKU BUNGA` = "2" AND `JENIS PENGGUNAAN` = "3" THEN "DEB NPL NON KTA KONSUMSI"
+    ELSE "False Statement!"
+  END AS `JENIS KREDIT`,
+  CASE
+    WHEN `JENIS PENGGUNAAN` = "1" THEN "MODAL KERJA"
+    WHEN `JENIS PENGGUNAAN` = "2" THEN "INVESTASI"
+    WHEN `JENIS PENGGUNAAN` = "3" THEN "KONSUMSI"
+    ELSE "False Statement!"
+  END AS `JENIS PENGGUNAAN (JP)`, partition_date
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+  -- WHERE partition_date = '2023-06-30'
+) AS a
+WHERE KOL IN ('3', '4', '5')
+GROUP BY `JENIS KREDIT`, `JENIS PENGGUNAAN (JP)`, partition_date;
+
+------------------------------
+
+-- 42. Report KYB (Realisasi Pencairan Bulan Berjalan)
+
+SELECT `KODE CABANG` AS fas, `NOMOR REKENING ANTASENA` AS no_rekening, `CIF` AS id_debitur, `NAMA DEBITUR` AS nama, `JENIS KREDIT` as jenis_kredit, `TANGGAL AKAD AWAL` as tanggal_akad_awal, `JATUH TEMPO` AS tanggal_jt, `KATAGORI DEBITUR` AS kategori_usaha,
+`KATEGORI PORTOFOLIO` AS kategori_porto, `SIFAT KREDIT` as sifat_kredit, `SEKTOR EKONOMI` as sektor_ekonomi, `LOKASI PROYEK` AS lokasi, `TINGKAT SUKU BUNGA` AS suku_bunga, `KUALITAS ANTASENA` AS kualitas, `PLAFOND` as plafond,
+`REALISASI PENCAIRAN BULAN BERJALAN` as realisasi_pencairan_bulan_berjalan, `PENDAPATAN BUNGA YANK AKAN DITERIMA` as pendapatan_bunga_yank_akan_diterima, `JUMLAH` AS outstanding, `KELONGGARAN TARIK UNCOMMITTED` AS kelonggaran_tarik, `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT` as nilai_agunan_yg_dpt_diperhitungkan_kredit,
+`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` AS ckpn_baik, `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` AS ckpn_kurang_baik, `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` AS ckpn_tidak_baik, partition_date
+FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE `JENIS SUKU BUNGA` = "2"
+ORDER BY `NAMA DEBITUR`;
+
+-----------------------------
+
+-- 43. Report Rekap (Dafnom Retail Tunaiku - (RS CFI)
+
+SELECT `Product1` AS product, `Kolektibilitas1` AS kolektibilitas, COUNT(`Debitur1`) AS debitur, SUM(`Bulan Laporan1`) AS bulan_laporan, SUM(`PYAD1`) AS pyad,
+SUM(`CKPN BAIK1`) AS ckpn_baik, SUM(`CKPN KURANG BAIK1`) AS ckpn_kurang_baik, SUM(`CKPN TIDAK BAIK1`) AS ckpn_tidak_baik, partition_date
+FROM (
+  SELECT `KATAGORI DEBITUR`, `KATEGORI PORTOFOLIO`, `KUALITAS ANTASENA` AS Kolektibilitas1, `NOMOR REKENING` AS Debitur1, safe_cast(`JUMLAH` as INT64) AS `Bulan Laporan1`, safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64) AS PYAD1, `PRODUK`,
+  safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64) AS `CKPN BAIK1`, safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64) AS `CKPN KURANG BAIK1`, safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64) AS `CKPN TIDAK BAIK1`,
+  CASE
+    WHEN `KATEGORI PORTOFOLIO` = "36" AND `KATAGORI DEBITUR` = "UM" THEN "KD UM KP 36"
+    ELSE "False"
+  END AS Product1, partition_date
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+  -- WHERE partition_date = '2023-06-30'
+) AS a
+WHERE Product1 NOT LIKE "abaikan" AND Product1 NOT LIKE "False" AND 
+`PRODUK` = "RSCFI"
+GROUP BY `Kolektibilitas1`, `Product1`, partition_date;
+
+-------------------------------------------
+
+-- 44. Report Rekap (Dafnom Retail Tunaiku)
+
+SELECT `Product1` AS product, `Kolektibilitas1` AS kolektibilitas, COUNT(`Debitur1`) AS debitur,
+SUM(`Bulan Laporan1`) AS bulan_laporan, SUM(`PYAD1`) AS pyad, SUM(`CKPN BAIK1`) AS ckpn_baik, SUM(`CKPN KURANG BAIK1`) AS ckpn_kurang_baik, SUM(`CKPN TIDAK BAIK1`) AS ckpn_tidak_baik, partition_date
+FROM (
+  SELECT `KATAGORI DEBITUR`, `KATEGORI PORTOFOLIO`, `KUALITAS ANTASENA` AS Kolektibilitas1, `NOMOR REKENING` AS Debitur1, safe_cast(`JUMLAH` as INT64) AS `Bulan Laporan1`, safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA`as INT64) AS PYAD1,
+  safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64) AS `CKPN BAIK1`, safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64) AS `CKPN KURANG BAIK1`, safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64) AS `CKPN TIDAK BAIK1`,
+  CASE
+    WHEN `KATEGORI PORTOFOLIO` = "36" THEN "KP 36"
+    WHEN `KATEGORI PORTOFOLIO` = "40" THEN "KP 40"
+    WHEN `KATEGORI PORTOFOLIO` = "54" AND `KATAGORI DEBITUR` = "NU" THEN "KD NU KP 54"
+    WHEN `KATEGORI PORTOFOLIO` = "54" AND `KATAGORI DEBITUR` = "UM" THEN "KD UM KP 54"
+    ELSE "False"
+  END AS Product1, partition_date
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+  -- WHERE partition_date = '2023-06-30'
+) AS a
+WHERE Product1 NOT LIKE "False"
+GROUP BY `Kolektibilitas1`, `Product1`, partition_date;
+
+-----------------------------------------
+
+-- 45. Restrukturisasi Covid dan Non Covid Semester
+
+SELECT `NAMA DEBITUR` as nama_debitur, `JUMLAH` as jumlah,
+CASE
+  WHEN `SIFAT KREDIT` = "1" THEN "RESTRUK NON COVID"
+  ELSE "RESTRUK COVID"
+END AS keterangan,
+CASE
+  WHEN `KUALITAS ANTASENA` = '1' THEN "RESTRUK BERLANJUT (Cenderung Potensi Membaik)"
+  WHEN `KUALITAS ANTASENA` = '2' THEN "RESTRUK BERLANJUT (Dalam Pemantauan)"
+  ELSE "GAGAL/NPL (On Balance Sheet)"
+END AS cluster,
+IFNULL(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`, '0') AS ckpn_baik,
+IFNULL(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`, '0') AS ckpn_kurang_baik,
+IFNULL(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`, '0') AS ckpn_tidak_baik,
+partition_date
+FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE `SIFAT KREDIT` IN ("1", "5");
+
+---------------------------------------
+
+-- 46. Tagihan Kepada Korporasi - ATMR
+
+SELECT `KET KATEGORI PORTOFOLIO` AS kategori_portofolio, 
+SUM(safe_cast(`Jumlah` as INT64)) AS tagihan, 
+SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64)) + SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64)) + SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64)) AS ckpn, 
+SUM(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64)) AS pyad,
+partition_date
+FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE `KET KATEGORI PORTOFOLIO` LIKE "Tagihan Kepada Korporasi"
+GROUP BY `KET KATEGORI PORTOFOLIO`, partition_date;
+
+---------------------------------
+
+-- 47. Tagihan Kepada Usaha Mikro, Kecil dan portfolio Ritel - ATMR
+
+SELECT `KET KATEGORI PORTOFOLIO` AS kategori_portofolio, 
+SUM(safe_cast(`Jumlah` as INT64)) AS tagihan, 
+SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64)) + SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64)) + SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64)) AS ckpn, 
+SUM(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64)) AS pyad,
+partition_date
+FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE `KET KATEGORI PORTOFOLIO` LIKE "Tagihan Kepada Usaha Mikro, Kecil dan portfolio Ritel"
+GROUP BY `KET KATEGORI PORTOFOLIO`, partition_date;
+
+----------------------------------
+
+-- 48. Tagihan Yang Telah Jatuh Tempo - ATMR
+
+SELECT `KET KATEGORI PORTOFOLIO` AS kategori_portofolio, 
+SUM(safe_cast(`Jumlah` as INT64)) AS tagihan, 
+SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64)) AS ckpn_baik,
+SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64)) AS ckpn_kurang_baik, 
+SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64)) AS ckpn_tidak_baik, 
+SUM(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64)) AS pyad,
+partition_date
+FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE `KATEGORI PORTOFOLIO` LIKE "53" OR `KATEGORI PORTOFOLIO` LIKE "54"
+GROUP BY `KET KATEGORI PORTOFOLIO`, partition_date;
+
+-----------------------------------------
+
+-- 49. Template Laporan Keuangan Berkelanjutan
+
+SELECT `NOMOR REKENING ANTASENA` AS nomor_rekening, `NAMA DEBITUR` as nama_debitur, `CIF` AS id_debitur, `NOMOR IDENTITAS` AS npwp_or_tin, `JENIS KREDIT` AS jenis_kredit_or_pembiayaan, `MULAI` AS tanggal_mulai, `JATUH TEMPO` AS tanggal_jatuh_tempo,
+`KATAGORI DEBITUR` AS kategori_usaha, `KATEGORI PORTOFOLIO` as kategori_portofolio, `SIFAT KREDIT` AS sifat_kredit_or_pembiayaan, `JENIS PENGGUNAAN` as jenis_penggunaan, `ORIENTASI PENGGUNAAN` as orientasi_penggunaan, `CCY` AS jenis_valuta, `KREDIT PROGRAM PEMERINTAH` as kredit_program_pemerintah, `LOKASI PROYEK` AS lokasi_penggunaan, 
+`TINGKAT SUKU BUNGA` AS suku_bunga_or_persentase_imbalan_pada_bulan_laporan, `KUALITAS ANTASENA` AS kualitas, 
+`PLAFOND` AS plafon, `NOMINAL KREDIT` AS baki_debet, `REALISASI PENCAIRAN BULAN BERJALAN` AS Realisasi_or_pencairan_bulan_berjalan, 
+`PENDAPATAN BUNGA YANK AKAN DITERIMA` AS pendapatan_bunga_or_imbalan_yang_akan_diterima, 
+`JUMLAH` as jumlah,
+`NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT` AS nilai_agunan_yang_dapat_diperhitungkan_kredit,
+`KELONGGARAN TARIK UNCOMMITTED` AS nilai_agunan_yang_dapat_diperhitungkan_kelonggaran_tarik,
+partition_date
+FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+ORDER BY safe_cast(`JUMLAH` as INT64) DESC
+-- LIMIT 150;
+
+---------------------------------------
+
+-- 5. Dafnom NonTunaiku (Percabang - Kusuma Bangsa)
+
+SELECT 
+  `No` as `no`, 
+  PRODUK as produk, 
+  `NOMOR REKENING` as nomor_rekening, 
+  CIF as cif, 
+  `NAMA DEBITUR` as nama_debitur, 
+  `JENIS KREDIT` as jenis_kredit, 
+  MULAI as mulai, 
+  `JATUH TEMPO` as jatuh_tempo, 
+  `KATAGORI DEBITUR` as katagori_debitur, 
+  `KATEGORI PORTOFOLIO` as kategori_portofolio, 
+  `SIFAT KREDIT` as sifat_kredit, 
+  CCY as ccy, 
+  `KUALITAS ANTASENA` AS kualitas,
+  `TINGKAT SUKU BUNGA` as tingkat_suku_bunga, 
+  `SEKTOR EKONOMI` as sektor_ekonomi, 
+  `LOKASI PROYEK` as lokasi_proyek, 
+  PLAFOND as plafond, 
+  `NOMINAL KREDIT` as nominal_kredit, 
+  `KELONGGARAN TARIK UNCOMMITTED` as kelonggaran_tarik_uncommitted,
+  `REALISASI PENCAIRAN BULAN BERJALAN` AS realisasi_pencairan,
+  JUMLAH as jumlah, 
+  `PENDAPATAN BUNGA YANK AKAN DITERIMA` AS pendapatan_bunga,
+  `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT` as nilai_agunan_yg_dpt_diperhitungkan_kredit,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_baik,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_kurang_baik,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_tidak_baik,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  `KODE CABANG` = '0300'
+  
+--------------------------------------
+
+-- 50. TRA lainnya
+
+SELECT `KET KATEGORI PORTOFOLIO` AS kategori_portofolio, 
+SUM(safe_cast(`KELONGGARAN TARIK UNCOMMITTED` as INT64)) AS nilai_tra, 
+SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64)) + SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64)) + SUM(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64)) AS ckpn, partition_date
+FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE `KET KATEGORI PORTOFOLIO` LIKE "Tagihan Kepada Usaha Mikro, Kecil dan portfolio Ritel" 
+OR `KET KATEGORI PORTOFOLIO` LIKE "Tagihan Kepada Korporasi"
+GROUP BY `KET KATEGORI PORTOFOLIO`, `KATEGORI PORTOFOLIO`, partition_date;
+
+-----------------------------------
+
+-- 51. Tw - Tagihan - Waktu Kontrak - SEOJK
+
+SELECT `KET KATEGORI PORTOFOLIO` AS kategori_portofolio, 
+SUM(safe_cast(`Tagihan Bersih` as INT64)) AS tagihan_bersih,
+partition_date
+FROM (
+  SELECT 
+  CASE
+    WHEN MATRIKS <= 12 THEN "≤ 1 Tahun"
+    WHEN MATRIKS <= 36 THEN "> 1 thn s.d. 3 thn"
+    WHEN MATRIKS <= 60 THEN "> 3 thn s.d. 5 thn"
+    ELSE "> 5 THN"
+  END AS sisa_jangka_waktu, 
+  *,
+  FROM (
+    SELECT `KET KATEGORI PORTOFOLIO`, 
+    DATE_DIFF((SELECT MAX(partition_date) FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`), PARSE_DATE('%m/%d/%Y', MULAI), MONTH) AS MATRIKS,
+    CASE
+      WHEN `KUALITAS WINCORE` = '1' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64),0) as STRING)
+      WHEN `KUALITAS WINCORE` = '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64),0) as STRING)
+      WHEN `KUALITAS WINCORE` > '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64),0) as STRING)
+      ELSE "Tidak Sesuai"
+    END AS `Tagihan Bersih`,
+    CASE
+      WHEN `KET KATEGORI PORTOFOLIO` = "Tagihan Yang Telah Jatuh Tempo - Exposure Lainnya" THEN "Tagihan yang Telah Jatuh Tempo"
+      WHEN `KET KATEGORI PORTOFOLIO` = "Tagihan Yang Telah Jatuh Tempo - Kredit Beragunan Properti Rumah Tinggal" THEN "Tagihan yang Telah Jatuh Tempo"
+      ELSE `KET KATEGORI PORTOFOLIO`
+    END AS `KETERANGAN KATEGORI PORTOFOLIO`,
+    partition_date
+    FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+    -- WHERE partition_date = '2023-06-30'
+  ) AS a
+) AS b
+WHERE (`KET KATEGORI PORTOFOLIO` LIKE "Tagihan Kepada Usaha Mikro, Kecil dan portfolio Ritel" OR 
+`KET KATEGORI PORTOFOLIO` LIKE "Tagihan Kepada Korporasi")
+GROUP BY `KET KATEGORI PORTOFOLIO`, partition_date;
+
+===========================================
+
+-- 52. Tw - Tagihan & Cad-sektorekonomi
+
+SELECT `SE REPORT` as se_report, `Tagihan yang Mengalami Penurunan Nilai` as tagihan_yang_mengalami_penurunan_nilai, SUM(safe_cast(`Tagihan Bersih1` as INT64)) AS tagihan_bersih,
+partition_date
+FROM (
+  SELECT `SE REPORT`,
+  CASE
+    WHEN `KUALITAS WINCORE` = '1' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64),0) as STRING)
+    WHEN `KUALITAS WINCORE` = '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64),0) as STRING)
+    WHEN `KUALITAS WINCORE` > '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64),0) as STRING)
+    ELSE "Tidak Sesuai"
+  END AS `Tagihan Bersih1`,
+  CASE
+    WHEN `KET KATEGORI PORTOFOLIO` = "Tagihan Yang Telah Jatuh Tempo - Exposure Lainnya" THEN "Tagihan yang Telah Jatuh Tempo"
+    WHEN `KET KATEGORI PORTOFOLIO` = "Tagihan Yang Telah Jatuh Tempo - Kredit Beragunan Properti Rumah Tinggal" THEN "Tagihan yang Telah Jatuh Tempo"
+    ELSE `KET KATEGORI PORTOFOLIO`
+  END AS `Tagihan yang Mengalami Penurunan Nilai`,
+  `KET KATEGORI PORTOFOLIO`, partition_date
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+  -- WHERE partition_date = '2023-06-30'
+) AS a
+GROUP BY `SE REPORT`, `KET KATEGORI PORTOFOLIO`, `Tagihan yang Mengalami Penurunan Nilai`, partition_date;
+
+------------------------------------------
+
+-- 53. Tw - Tagihan Wilayah - SEOJK
+
+SELECT `Tagihan yang Telah Jatuh Tempo` AS kategori_portofolio, `WILAYAH` as wilayah, SUM(safe_cast(`Tagihan Bersih` as INT64)) AS tagihan_bersih, partition_date
+FROM (
+  SELECT 
+  CASE
+    WHEN `KET KATEGORI PORTOFOLIO` = "Tagihan Yang Telah Jatuh Tempo - Exposure Lainnya" THEN "Tagihan yang Telah Jatuh Tempo"
+    WHEN `KET KATEGORI PORTOFOLIO` = "Tagihan Yang Telah Jatuh Tempo - Kredit Beragunan Properti Rumah Tinggal" THEN "Tagihan yang Telah Jatuh Tempo"
+    ELSE `KET KATEGORI PORTOFOLIO`
+  END AS `Tagihan yang Telah Jatuh Tempo`,
+  CASE
+    WHEN `KUALITAS WINCORE` = '1' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64),0) as STRING)
+    WHEN `KUALITAS WINCORE` = '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64),0) as STRING)
+    WHEN `KUALITAS WINCORE` > '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64),0) as STRING)
+    ELSE "Tidak Sesuai"
+  END AS `Tagihan Bersih`,
+  `WILAYAH`, partition_date
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+  -- WHERE partition_date = '2023-06-30'
+) AS a
+GROUP BY `Tagihan yang Telah Jatuh Tempo`, `WILAYAH`, partition_date;
+
+------------------------------------------
+
+-- 54. Tw - Tagihan yang dihapus buku
+
+SELECT `Wilayah` as wilayah, SUM(safe_cast(`TOTAL OS HB` as INT64)) AS os_hb, partition_date
+FROM `data-collection-01.antasena_wincore_report.vw_antasena_hapus_buku`
+-- WHERE partition_date = '2023-06-30'
+GROUP BY `Wilayah`, partition_date;
+
+---------------------------------------------
+
+-- 55. Tw - Tagihan&Cadangan-wilayah (Tagihan Per Wilayah) - SEOJK
+
+SELECT `WILAYAH` as wilayah, SUM(safe_cast(`Tagihan Bersih` as INT64)) AS tagihan_bersih, partition_date
+FROM (
+  SELECT `WILAYAH`,
+  CASE
+    WHEN `KUALITAS WINCORE` = '1' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64),0) as STRING)
+    WHEN `KUALITAS WINCORE` = '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64),0) as STRING)
+    WHEN `KUALITAS WINCORE` > '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64),0) as STRING)
+    ELSE "Tidak Sesuai"
+  END AS `Tagihan Bersih`, partition_date
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+  -- WHERE partition_date = '2023-06-30'
+) AS a
+GROUP BY `WILAYAH`, partition_date;
+
+-------------------------------------------
+
+-- 56. Tw - Tagihan&Cad-sektorekonomi (CKPN Stage 1,2,3) - SEOJK
+
+SELECT `SE REPORT` as se_report, `Tagihan Bersih` as tagihan_bersih, `Cadangan kerugian penurunan nilai CKPN -Stage 1` as cadangan_kerugian_penurunan_nilai_ckpn_stage_1, `Cadangan kerugian penurunan nilai CKPN - Stage 2` as cadangan_kerugian_penurunan_nilai_ckpn_stage_2, `Cadangan kerugian penurunan nilai CKPN - Stage 3` as cadangan_kerugian_penurunan_nilai_ckpn_stage_3, partition_date
+FROM (
+  SELECT `SE REPORT`,
+  CASE
+    WHEN `KUALITAS WINCORE` = '1' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64),0) as STRING)
+    WHEN `KUALITAS WINCORE` = '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64),0) as STRING)
+    WHEN `KUALITAS WINCORE` > '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64),0) as STRING)
+    ELSE "Tidak Sesuai"
+  END AS `Tagihan Bersih`,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` AS `Cadangan kerugian penurunan nilai CKPN -Stage 1`,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` AS `Cadangan kerugian penurunan nilai CKPN - Stage 2`,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` AS `Cadangan kerugian penurunan nilai CKPN - Stage 3`,
+  partition_date
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+  -- WHERE partition_date = '2023-06-30'
+) AS a;
+
+--------------------------------------
+
+-- 57. Tw - Tagihan&Cad-sektorekonomi (Tagihan Bersih) - SEOJK
+
+SELECT `SE REPORT` as se_report,
+CASE
+  WHEN `KUALITAS WINCORE` = '1' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64),0) as STRING)
+  WHEN `KUALITAS WINCORE` = '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64),0) as STRING)
+  WHEN `KUALITAS WINCORE` > '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64),0) as STRING)
+  ELSE "Tidak Sesuai"
+END AS tagihan_bersih,
+CASE
+  WHEN `KET KATEGORI PORTOFOLIO` = "Tagihan Yang Telah Jatuh Tempo - Exposure Lainnya" THEN "Tagihan yang Telah Jatuh Tempo"
+  WHEN `KET KATEGORI PORTOFOLIO` = "Tagihan Yang Telah Jatuh Tempo - Kredit Beragunan Properti Rumah Tinggal" THEN "Tagihan yang Telah Jatuh Tempo"
+  ELSE "Tagihan Belum Jatuh Tempo"
+END AS tagihan_yang_mengalami_penurunan_nilai,
+partition_date
+FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`;
+-- WHERE partition_date = '2023-06-30';
+
+--------------------------------------------
+
+-- 58. Tw -Tagihan Sektor Ekonomi - SEOJK
+
+SELECT `SE REPORT` as se_report, `KET KATEGORI PORTOFOLIO` as ket_kategori_portofolio, SUM(safe_cast(`Tagihan Bersih` as INT64)) AS tagihan_bersih, partition_date
+FROM (
+  SELECT `SE REPORT`, `KET KATEGORI PORTOFOLIO`,
+  CASE
+    WHEN `KUALITAS WINCORE` = '1' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64),0) as STRING)
+    WHEN `KUALITAS WINCORE` = '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64),0) as STRING)
+    WHEN `KUALITAS WINCORE` > '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64),0) as STRING)
+    ELSE "Tidak Sesuai"
+  END AS `Tagihan Bersih`, partition_date
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+  -- WHERE partition_date = '2023-06-30'
+) AS a
+GROUP BY `SE REPORT`, `KET KATEGORI PORTOFOLIO`, partition_date;
+
+-----------------------------------------
+
+-- 59. Tw -Tagihan&Cadangan-wilayah (Belum & Telah jatuh Tempo) - SEOJK
+
+SELECT `KETERANGAN KATEGORI PORTOFOLIO` as keterangan_kategori_portofolio, `WILAYAH` as wilayah, SUM(safe_cast(`Tagihan Bersih` as INT64)) AS tagihan_bersih, partition_date
+FROM (
+  SELECT 
+  CASE
+    WHEN `KET KATEGORI PORTOFOLIO` = "Tagihan Yang Telah Jatuh Tempo - Exposure Lainnya" THEN "Tagihan yang Telah Jatuh Tempo"
+    WHEN `KET KATEGORI PORTOFOLIO` = "Tagihan Yang Telah Jatuh Tempo - Kredit Beragunan Properti Rumah Tinggal" THEN "Tagihan yang Telah Jatuh Tempo"
+    ELSE "Tagihan Belum Jatuh Tempo"
+  END AS `KETERANGAN KATEGORI PORTOFOLIO`,
+  CASE
+    WHEN `KUALITAS WINCORE` = '1' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64),0) as STRING)
+    WHEN `KUALITAS WINCORE` = '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64),0) as STRING)
+    WHEN `KUALITAS WINCORE` > '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + IFNULL(safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64),0) - IFNULL(safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64),0) as STRING)
+    ELSE "Tidak Sesuai"
+  END AS `Tagihan Bersih`,
+  `WILAYAH`,
+  partition_date
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+  -- WHERE partition_date = '2023-06-30'
+) AS a
+GROUP BY `KETERANGAN KATEGORI PORTOFOLIO`, `WILAYAH`, partition_date;
+
+------------------------------------------
+
+-- 6. Dafnom NonTunaiku (Percabang - Thamrin)
+
+SELECT 
+  `No` as `no`, 
+  PRODUK as produk, 
+  `NOMOR REKENING` as nomor_rekening, 
+  CIF as cif, 
+  `NAMA DEBITUR` as nama_debitur, 
+  `JENIS KREDIT` as jenis_kredit, 
+  MULAI as mulai, 
+  `JATUH TEMPO` as jatuh_tempo, 
+  `KATAGORI DEBITUR` as katagori_debitur, 
+  `KATEGORI PORTOFOLIO` as kategori_portofolio, 
+  `SIFAT KREDIT` as sifat_kredit, 
+  CCY as ccy, 
+  `KUALITAS ANTASENA` AS kualitas,
+  `TINGKAT SUKU BUNGA` as tingkat_suku_bunga, 
+  `SEKTOR EKONOMI` as sektor_ekonomi, 
+  `LOKASI PROYEK` as lokasi_proyek, 
+  PLAFOND as plafond, 
+  `NOMINAL KREDIT` as nominal_kredit, 
+  `KELONGGARAN TARIK UNCOMMITTED` as kelonggaran_tarik_uncommitted,
+  `REALISASI PENCAIRAN BULAN BERJALAN` AS realisasi_pencairan,
+  JUMLAH as jumlah, 
+  `PENDAPATAN BUNGA YANK AKAN DITERIMA` AS pendapatan_bunga,
+  `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT` as nilai_agunan_yg_dpt_diperhitungkan_kredit,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_baik,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_kurang_baik,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_tidak_baik,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  `KODE CABANG` = '0100'
+  
+-------------------------------------------
+
+-- 60. Tw -Tagihan&Cadangan-wilayah (CKPN Stage) - SEOJK
+
+SELECT `CKPN Stage` as ckpn_stage, `WILAYAH` as wilayah, SUM(safe_cast(`CKPN` as INT64)) AS nilai_ckpn, partition_date
+FROM (
+  SELECT 
+  CASE
+    WHEN `KUALITAS WINCORE` = '1' THEN "CKPN - Stage 1"
+    WHEN `KUALITAS WINCORE` = '2' THEN "CKPN - Stage 2"
+    WHEN `KUALITAS WINCORE` > '2' THEN "CKPN - Stage 3"
+    ELSE "Tidak Sesuai"
+  END AS `CKPN Stage`,
+  CASE
+    WHEN `KUALITAS WINCORE` = '1' THEN `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK`
+    WHEN `KUALITAS WINCORE` = '2' THEN `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK`
+    WHEN `KUALITAS WINCORE` > '2' THEN `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK`
+    ELSE "Tidak Sesuai"
+  END AS CKPN, 
+  `WILAYAH`, partition_date
+  FROM `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+  -- WHERE partition_date = '2023-06-30'
+) AS a
+GROUP BY `CKPN Stage`, `WILAYAH`, partition_date;
+
+-------------------------------------
+
+-- 61. Tw -Tagihan&Cad-sektorekonomi - (Penurunan Nilai)
+
+SELECT 
+  `SE REPORT` as se_report, 
+  `Tagihan yang Mengalami Penurunan Nilai` as tagihan_yang_mengalami_penurunan_nilai, 
+  SUM(safe_cast(`Tagihan Bersih1` as INT64)) AS tagihan_bersih,
+  partition_date
+FROM (
+  SELECT 
+    `SE REPORT`, 
+    CASE
+      WHEN `KUALITAS WINCORE` = '1' THEN safe_cast(safe_cast(JUMLAH as INT64) + safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64) - safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as INT64) as STRING)
+      WHEN `KUALITAS WINCORE` = '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64) - safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as INT64) as STRING)
+      WHEN `KUALITAS WINCORE` > '2' THEN safe_cast(safe_cast(JUMLAH as INT64) + safe_cast(`PENDAPATAN BUNGA YANK AKAN DITERIMA` as INT64) - safe_cast(`CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as INT64) as STRING)
+      ELSE "Tidak Sesuai"
+    END AS `Tagihan Bersih1`,
+    CASE
+      WHEN `KET KATEGORI PORTOFOLIO` = "Tagihan Yang Telah Jatuh Tempo - Exposure Lainnya" THEN "Tagihan yang Telah Jatuh Tempo"
+      WHEN `KET KATEGORI PORTOFOLIO` = "Tagihan Yang Telah Jatuh Tempo - Kredit Beragunan Properti Rumah Tinggal" THEN "Tagihan yang Telah Jatuh Tempo"
+      ELSE "Tagihan Belum Jatuh Tempo"
+    END AS `Tagihan yang Mengalami Penurunan Nilai`,
+    partition_date
+  FROM 
+    `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+    WHERE partition_date = '2023-06-30'
+) AS a
+GROUP BY 
+  `SE REPORT`, 
+  `Tagihan yang Mengalami Penurunan Nilai`,
+  partition_date
+  
+-------------------------------------------
+
+-- 7. Dafnom NonTunaiku (Percabang - Wiyung)
+
+SELECT 
+  `No` as `no`, 
+  PRODUK as produk, 
+  `NOMOR REKENING` as nomor_rekening, 
+  CIF as cif, 
+  `NAMA DEBITUR` as nama_debitur, 
+  `JENIS KREDIT` as jenis_kredit, 
+  MULAI as mulai, 
+  `JATUH TEMPO` as jatuh_tempo, 
+  `KATAGORI DEBITUR` as katagori_debitur, 
+  `KATEGORI PORTOFOLIO` as kategori_portofolio, 
+  `SIFAT KREDIT` as sifat_kredit, 
+  CCY as ccy, 
+  `KUALITAS ANTASENA` AS kualitas,
+  `TINGKAT SUKU BUNGA` as tingkat_suku_bunga, 
+  `SEKTOR EKONOMI` as sektor_ekonomi, 
+  `LOKASI PROYEK` as lokasi_proyek, 
+  PLAFOND as plafond, 
+  `NOMINAL KREDIT` as nominal_kredit, 
+  `KELONGGARAN TARIK UNCOMMITTED` as kelonggaran_tarik_uncommitted,
+  `REALISASI PENCAIRAN BULAN BERJALAN` AS realisasi_pencairan,
+  JUMLAH as jumlah, 
+  `PENDAPATAN BUNGA YANK AKAN DITERIMA` AS pendapatan_bunga,
+  `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT` as nilai_agunan_yg_dpt_diperhitungkan_kredit,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_baik,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_kurang_baik,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_tidak_baik,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  `KODE CABANG` = '0200'
+  
+----------------------------------------------
+
+-- 8. Dafnom Tunaiku
+
+SELECT 
+  `Date Period` as date_period,
+  `No` as `no`,
+  `CIF` as cif,
+  `NAMA DEBITUR` as nama_debitur,
+  `PRODUK` as produk,
+  `KODE CABANG` as kode_cabang,
+  `PELAPOR` as pelapor,
+  `NOMOR REKENING` as nomor_rekening,
+  `NOMOR REKENING ANTASENA` as nomor_rekening_antasena,
+  `NOMOR REKENING SLIK` as nomor_rekening_slik,
+  `JENIS KREDIT` as jenis_kredit,
+  `KETERANGAN JENIS KREDIT` as keterangan_jenis_kredit,
+  `NOMOR AKAD AWAL` as nomor_akad_awal,
+  `TANGGAL AKAD AWAL` as tanggal_akad_awal,
+  `NOMOR AKAD AKHIR` as nomor_akad_akhir,
+  `TANGGAL AKAD AKHIR` as tanggal_akad_akhir,
+  `TANGGAL AWAL` as tanggal_awal,
+  `MULAI` as mulai,
+  `JATUH TEMPO` as jatuh_tempo,
+  `KATAGORI DEBITUR` as katagori_debitur,
+  `KET KATAGORI DEBITUR` as ket_katagori_debitur,
+  `KATEGORI PORTOFOLIO` as kategori_portofolio,
+  `KET KATEGORI PORTOFOLIO` as ket_kategori_portofolio,
+  `SIFAT KREDIT` as sifat_kredit,
+  `JENIS PENGGUNAAN` as jenis_penggunaan,
+  `ORIENTASI PENGGUNAAN` as orientasi_penggunaan,
+  `CCY` as ccy,
+  `KREDIT PROGRAM PEMERINTAH` as kredit_program_pemerintah,
+  `KUALITAS ANTASENA` as kualitas_antasena,
+  `KUALITAS SLIK` as kualitas_slik,
+  `KUALITAS WINCORE` as kualitas_wincore,
+  `TINGKAT SUKU BUNGA` as tingkat_suku_bunga,
+  `JENIS SUKU BUNGA` as jenis_suku_bunga,
+  `SEKTOR EKONOMI` as sektor_ekonomi,
+  `KETERANGAN SEKTOR EKONOMI` as keterangan_sektor_ekonomi,
+  `LOKASI PROYEK` as lokasi_proyek,
+  `KOTA OR KAB` as kota_or_kab,
+  `PROVINSI` as provinsi,
+  `WILAYAH` as wilayah,
+  `PLAFOND INDUK` as plafond_induk,
+  `PLAFOND` as plafond,
+  `NOMINAL KREDIT` as nominal_kredit,
+  `KELONGGARAN TARIK UNCOMMITTED` as kelonggaran_tarik_uncommitted,
+  `REALISASI PENCAIRAN BULAN BERJALAN` as realisasi_pencairan_bulan_berjalan,
+  `JUMLAH` as jumlah,
+  `PENDAPATAN BUNGA YANK AKAN DITERIMA` as pendapatan_bunga_yank_akan_diterima,
+  `NILAI AGUNAN YG DPT DIPERHITUNGKAN KREDIT` as nilai_agunan_yg_dpt_diperhitungkan_kredit,
+  `BTB OR CASH COL` as btb_or_cash_col,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_baik,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET KURANG BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_kurang_baik,
+  `CADANGAN KERUGIAN PENURUNAN NILAI KREDIT ASET TIDAK BAIK` as cadangan_kerugian_penurunan_nilai_kredit_aset_tidak_baik,
+  `LOAN STATUS` as loan_status,
+  `NOMOR IDENTITAS` as nomor_identitas,
+  `SE REPORT` as se_report,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  PRODUK IN ('KPMAR', 'KPMP2', 'KPMPA', 'KPMPB', 'KPMRA', 'KPMSP')
+  
+--------------------------------------
+
+-- 9. Data Realisasi Kredit - Kredit Produktif & Non Produktif Report
+
+SELECT 
+  CASE 
+    WHEN `JENIS PENGGUNAAN` IN ('1', '2') THEN 'KREDIT PRODUKTIF'
+    WHEN `JENIS PENGGUNAAN` = '3' THEN 'KREDIT NON PRODUKTIF'
+    ELSE 'False Statement!'
+  END AS kredit_produktif_dan_non_produktif,
+  SUM(safe_cast(`JUMLAH` as INT64)) AS total_os,
+  partition_date
+FROM 
+  `data-collection-01.antasena_wincore_report.vw_antasena_wincore_report`
+WHERE 
+  `JENIS PENGGUNAAN` IN ('1', '2', '3')
+GROUP BY 
+  kredit_produktif_dan_non_produktif, partition_date
+  
+--------------------------------------------
+vw_statement
+
+SELECT 
+  REGEXP_REPLACE(jenis_rekening, r'([\'\"])', '') as jenis_rekening,
+  REGEXP_REPLACE(no_rekening, r'([\'\"])', '') as no_rekening,
+  REGEXP_REPLACE(mata_uang, r'([\'\"])', '') as mata_uang,
+  REGEXP_REPLACE(plafond, r'([,\'\"])', '') as plafond,
+  REGEXP_REPLACE(nasabah, r'([\'\"])', '') as nasabah,
+  REGEXP_REPLACE(alamat, r'([\'\"])', '') as alamat,
+  REGEXP_REPLACE(kode_pos, r'([\'\"])', '') as kode_pos,
+  FORMAT_DATE('%Y-%m-%d', PARSE_DATE('%d/%m/%Y', REGEXP_REPLACE(tanggal, r'([\'\"])', ''))) AS tanggal,
+  REGEXP_REPLACE(keterangan, r'([\'\"])', '') as keterangan,
+  REGEXP_REPLACE(mutasi_debet, r'([,\'\"])', '') as mutasi_debet,
+  REGEXP_REPLACE(mutasi_kredit, r'([,\'\"])', '') as mutasi_kredit,
+  REGEXP_REPLACE(saldo, r'([,\'\"])', '') as saldo
+FROM `data-collection-01.antasena_wincore_report.estatement` 
+WHERE partition_date != "1970-01-01"
+
+---------------------------------------
+vw_statement_sourcedb
+
+SELECT 
+  IF(ATYACTY = '200', 'GIRO', 'OTHERS') jenis_rekening,
+  -- ATYACTY jenis_rekening, 
+  ACTACNO no_rekening, 
+  CCYCYCO||'-'||CCYDESC mata_uang, 
+  ACTPLAF/100 plafond, 
+  ACTNAME nasabah, 
+  TRIM(CS1ADR1)||' '||TRIM(CS1ADR2)||' '||TRIM(CS1ADR3) alamat, 
+  CS1ZIPC kode_pos, 
+  -- TRNPODT tanggal,
+  a.partition_date tanggal, 
+  TRNDSC1 keterangan, 
+  -- TRNDBCR TIPE_TRANSAKSI,
+  IF(TRNDBCR = 'D', (TRNAMNT/100), NULL) mutasi_debet,
+  IF(TRNDBCR = 'K', (TRNAMNT/100), NULL) mutasi_kredit,
+  -- TRNAMNT/100 MUTASI, 
+  AS8AMNT/100 saldo_akhir
+FROM `data-collection-01.vw_WINAMNDTA.vw_TRNPF_no_rep` a
+LEFT JOIN `data-collection-01.vw_WINAMNDTA.vw_CS1PF_no_rep` ON TRNACCU = CS1CUCO AND CS1ARCO='01'
+LEFT JOIN `data-collection-01.vw_WINAMNDTA.vw_ATYPF_no_rep` ON TRNACAT = ATYACTY
+LEFT JOIN `data-collection-01.vw_WINAMNDTA.vw_CCYPF_no_rep` ON CCYCYCO = TRNCYCO
+LEFT JOIN `data-collection-01.vw_WINAMNDTA.vw_ACTPF_no_rep` ON ACTACBR||ACTACAT||ACTACCU||ACTACSQ = TRNACBR||TRNACAT||TRNACCU||TRNACSQ
+LEFT JOIN `data-collection-01.vw_WINAMNDTA.vw_AS8PF` ON AS8ACBR||AS8ACAT||AS8ACCU||AS8ACSQ||AS8DTIN = TRNACBR||TRNACAT||TRNACCU||TRNACSQ||TRNDTIN
+-- WHERE TRNACAT='200' AND TRNDTIN BETWEEN 20240102 AND 20240105
+WHERE TRNACAT='200' --AND a.partition_date BETWEEN '2024-01-02' AND '2024-01-05'
+
